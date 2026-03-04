@@ -10,6 +10,12 @@ use crate::engine::runlog::{RunEvent, RunLog};
 use crate::engine::world::{clamp_0_100, WorldRecipe, WorldState};
 use crate::worldgen::spec::INFLUENCE_SCALE;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoiseMode {
+    Normal,
+    Disabled,
+}
+
 #[derive(Debug, Error)]
 pub enum SimError {
     #[error("delta value for {0} must be finite and >= 0")]
@@ -22,6 +28,7 @@ pub struct Simulator {
     state: WorldState,
     tick: u32,
     contamination: f32,
+    noise_mode: NoiseMode,
     rng: ChaCha8Rng,
     runlog: RunLog,
 }
@@ -43,9 +50,22 @@ impl Simulator {
             recipe,
             tick: 0,
             contamination: 0.0,
+            noise_mode: NoiseMode::Normal,
             rng: ChaCha8Rng::seed_from_u64(rng_seed),
             runlog: RunLog::default(),
         }
+    }
+
+    pub fn new_no_noise(recipe: WorldRecipe) -> Self {
+        let mut sim = Self::new(recipe);
+        sim.noise_mode = NoiseMode::Disabled;
+        sim
+    }
+
+    pub fn with_noise_mode(recipe: WorldRecipe, noise_mode: NoiseMode) -> Self {
+        let mut sim = Self::new(recipe);
+        sim.noise_mode = noise_mode;
+        sim
     }
 
     pub fn state(&self) -> &WorldState {
@@ -154,7 +174,9 @@ impl Simulator {
                 .map(|edge| edge.weight * (next.get(edge.from) / 100.0))
                 .sum::<f32>();
             let sigma = self.recipe.noise_sigma[node.as_index()];
-            let noise = if sigma > 0.0 {
+            let noise = if self.noise_mode == NoiseMode::Disabled {
+                0.0
+            } else if sigma > 0.0 {
                 sample_standard_normal(&mut self.rng) * sigma
             } else {
                 0.0
