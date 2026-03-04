@@ -1,6 +1,7 @@
 pub mod app;
 pub mod event;
 pub mod terminal;
+pub mod view_journal;
 pub mod view_lab;
 pub mod view_console;
 pub mod view_log;

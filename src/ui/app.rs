@@ -9,12 +9,12 @@ use crate::engine::interventions::Intervention;
 use crate::engine::measurement::MeasurementRecord;
 use crate::engine::sim::{SimError, Simulator};
 use crate::engine::world::WorldState;
-use crate::ui::{view_console, view_lab, view_log};
+use crate::ui::{view_journal, view_lab, view_log};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveView {
     Lab,
-    Console,
+    Journal,
     Log,
 }
 
@@ -22,7 +22,7 @@ impl ActiveView {
     pub fn as_index(self) -> usize {
         match self {
             Self::Lab => 0,
-            Self::Console => 1,
+            Self::Journal => 1,
             Self::Log => 2,
         }
     }
@@ -98,6 +98,7 @@ pub struct App {
     pub active_view: ActiveView,
     pub menu_index: usize,
     pub log_scroll: usize,
+    pub journal_scroll: u16,
     pub should_quit: bool,
     pub status_message: String,
     pub last_measurements: Vec<MeasurementRecord>,
@@ -116,6 +117,7 @@ impl App {
             active_view: ActiveView::Lab,
             menu_index: 0,
             log_scroll: 0,
+            journal_scroll: 0,
             should_quit: false,
             status_message: format!("Seed {seed}"),
             last_measurements: Vec::new(),
@@ -130,9 +132,9 @@ impl App {
             .constraints([Constraint::Length(3), Constraint::Min(0)])
             .split(frame.size());
 
-        let titles = ["1 Lab", "2 Console", "3 Log"];
+        let titles = ["1 Lab", "2 Journal", "3 Log"];
         let tabs = Tabs::new(titles)
-            .block(Block::default().title("xenolab v0.1").borders(Borders::ALL))
+            .block(Block::default().title("xenolab v0.1.1").borders(Borders::ALL))
             .select(self.active_view.as_index())
             .style(Style::default().fg(Color::White))
             .highlight_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
@@ -140,11 +142,11 @@ impl App {
 
         match self.active_view {
             ActiveView::Lab => view_lab::render_lab(frame, self, chunks[1]),
-            ActiveView::Console => view_console::render(frame, chunks[1], self),
+            ActiveView::Journal => view_journal::render_journal(frame, self, chunks[1]),
             ActiveView::Log => view_log::render(frame, chunks[1], self),
         }
 
-        let footer = Paragraph::new("q quit | 1/2/3 tabs | arrows navigate | enter apply")
+        let footer = Paragraph::new(self.footer_text())
             .style(Style::default().fg(Color::DarkGray))
             .alignment(Alignment::Right);
         let footer_area = ratatui::layout::Rect {
@@ -162,12 +164,32 @@ impl App {
                 self.should_quit = true;
             }
             KeyCode::Char('1') => self.active_view = ActiveView::Lab,
-            KeyCode::Char('2') => self.active_view = ActiveView::Console,
+            KeyCode::Char('2') => self.active_view = ActiveView::Journal,
             KeyCode::Char('3') => self.active_view = ActiveView::Log,
+            KeyCode::Char('j') => {
+                if self.active_view == ActiveView::Journal {
+                    self.journal_scroll = self.journal_scroll.saturating_add(1);
+                }
+            }
+            KeyCode::Char('k') => {
+                if self.active_view == ActiveView::Journal {
+                    self.journal_scroll = self.journal_scroll.saturating_sub(1);
+                }
+            }
+            KeyCode::PageDown => {
+                if self.active_view == ActiveView::Journal {
+                    self.journal_scroll = self.journal_scroll.saturating_add(8);
+                }
+            }
+            KeyCode::PageUp => {
+                if self.active_view == ActiveView::Journal {
+                    self.journal_scroll = self.journal_scroll.saturating_sub(8);
+                }
+            }
             KeyCode::Up => self.handle_up(),
             KeyCode::Down => self.handle_down(),
             KeyCode::Enter => {
-                if matches!(self.active_view, ActiveView::Lab | ActiveView::Console) {
+                if self.active_view == ActiveView::Lab {
                     self.apply_selected_action()?;
                 }
             }
@@ -195,14 +217,45 @@ impl App {
         }
     }
 
+    pub fn objective_goal_text(&self) -> &'static str {
+        match self.objective {
+            ObjectiveId::StabilizePlant => "Keep plant population at or above 45 for 5 consecutive ticks.",
+            ObjectiveId::Detox => "Reduce toxin concentration to 8 or below for 5 consecutive ticks.",
+            ObjectiveId::PreventCollapse => {
+                "Maintain bacteria >= 20 and plant >= 35 for 5 consecutive ticks."
+            }
+        }
+    }
+
+    pub fn objective_failure_text(&self) -> &'static str {
+        match self.objective {
+            ObjectiveId::StabilizePlant => "If plant drops to 5 or below, containment fails.",
+            ObjectiveId::Detox => "If toxin reaches 60, lab systems are compromised.",
+            ObjectiveId::PreventCollapse => "If either bacteria or plant hits 0, the biosystem collapses.",
+        }
+    }
+
+    fn footer_text(&self) -> &'static str {
+        match self.active_view {
+            ActiveView::Lab => "q quit | 1/2/3 tabs | arrows actions | enter apply",
+            ActiveView::Journal => {
+                "q quit | 1/2/3 tabs | up/down or j/k scroll | pgup/pgdn fast scroll"
+            }
+            ActiveView::Log => "q quit | 1/2/3 tabs | up/down scroll log",
+        }
+    }
+
     fn handle_up(&mut self) {
         match self.active_view {
-            ActiveView::Lab | ActiveView::Console => {
+            ActiveView::Lab => {
                 if self.menu_index == 0 {
                     self.menu_index = self.actions().len().saturating_sub(1);
                 } else {
                     self.menu_index = self.menu_index.saturating_sub(1);
                 }
+            }
+            ActiveView::Journal => {
+                self.journal_scroll = self.journal_scroll.saturating_sub(1);
             }
             ActiveView::Log => {
                 self.log_scroll = self.log_scroll.saturating_sub(1);
@@ -212,9 +265,12 @@ impl App {
 
     fn handle_down(&mut self) {
         match self.active_view {
-            ActiveView::Lab | ActiveView::Console => {
+            ActiveView::Lab => {
                 let len = self.actions().len();
                 self.menu_index = if len == 0 { 0 } else { (self.menu_index + 1) % len };
+            }
+            ActiveView::Journal => {
+                self.journal_scroll = self.journal_scroll.saturating_add(1);
             }
             ActiveView::Log => {
                 self.log_scroll = self.log_scroll.saturating_add(1);
