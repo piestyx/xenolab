@@ -1,5 +1,6 @@
 pub mod graph;
 pub mod ids;
+pub mod invariants;
 pub mod math;
 pub mod interventions;
 pub mod measurement;
