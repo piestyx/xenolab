@@ -1,3 +1,7 @@
 fn main() {
-    println!("xenolab v0.1");
+    let seed = std::env::args()
+        .nth(1)
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .unwrap_or(42);
+    xenolab::ui::run(seed).unwrap();
 }

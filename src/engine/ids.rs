@@ -64,4 +64,12 @@ impl ObjectiveId {
             _ => Self::PreventCollapse,
         }
     }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::StabilizePlant => "StabilizePlant",
+            Self::Detox => "Detox",
+            Self::PreventCollapse => "PreventCollapse",
+        }
+    }
 }
