@@ -21,6 +21,19 @@ run events with deterministic hashing for verification.
 
 World generation and simulation are seed-based and deterministic by design.
 
+## Archetypes and Legibility
+
+- Each seed deterministically maps to an interaction archetype:
+  `UvSensitive`, `NutrientLimited`, `ToxinDriven`, `SymbiosisFragile`,
+  or `DetoxEcosystem`.
+- Archetypes bias which constraints dominate plant outcomes (UV chain,
+  nutrient depletion, toxin pressure, fragile symbiosis, or detox loops).
+- Generated graphs are intentionally sparse (`6..=8` edges) with per-node
+  incoming-degree caps and tiered edge magnitudes (primary, secondary, spice)
+  to keep causal structure readable.
+- Some archetypes may include a deterministic UV-toxin threshold hook
+  (`Burn` or `Create`) for rare nonlinear behavior.
+
 ## Run Loop
 
 - The app starts with a generated playable world for the selected seed (default `42`).
