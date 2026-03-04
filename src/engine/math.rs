@@ -61,3 +61,8 @@ pub fn apply_organism_dynamics(
 ) -> f32 {
     current - maintenance_drain(maintenance) - capacity_drag(current, capacity_k) + delta
 }
+
+/// Apply base decay: next = current - decay (floored at 0 before clamp).
+pub fn apply_base_decay(current: f32, decay: f32) -> f32 {
+    current - decay
+}

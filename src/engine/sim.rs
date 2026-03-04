@@ -13,6 +13,8 @@ use crate::engine::world::{WorldRecipe, WorldState};
 const INFLUENCE_SCALE: f32 = crate::worldgen::spec::INFLUENCE_SCALE;
 const ORG_MAINTENANCE: f32 = 0.8;
 const ORG_CAPACITY_K: f32 = 0.015;
+const TOXIN_BASE_DECAY: f32 = 0.4;
+const NUTRIENT_BASE_DECAY: f32 = 0.2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoiseMode {
@@ -191,6 +193,14 @@ impl Simulator {
                 let raw =
                     math::apply_organism_dynamics(current, delta, ORG_MAINTENANCE, ORG_CAPACITY_K);
                 math::clamp01(raw)
+            } else if is_chemical(node) {
+                let raw = current + delta;
+                let decay = match node {
+                    NodeId::Toxin => TOXIN_BASE_DECAY,
+                    NodeId::Nutrient => NUTRIENT_BASE_DECAY,
+                    _ => 0.0,
+                };
+                math::clamp01(math::apply_base_decay(raw, decay))
             } else {
                 math::apply_update(current, bias, influence, INFLUENCE_SCALE, noise)
             };
@@ -248,6 +258,10 @@ impl Simulator {
 
 fn is_organism(node: NodeId) -> bool {
     matches!(node, NodeId::PlantPop | NodeId::FungusLoad | NodeId::BacteriaPop)
+}
+
+fn is_chemical(node: NodeId) -> bool {
+    matches!(node, NodeId::Toxin | NodeId::Nutrient)
 }
 
 fn validate_non_negative(delta: f32, label: &'static str) -> Result<(), SimError> {

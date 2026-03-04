@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::engine::ids::NodeId;
 
-pub const INFLUENCE_SCALE: f32 = 10.0;
+pub const INFLUENCE_SCALE: f32 = 8.0;
 pub const STABILITY_CAP: f32 = 2.0;
 pub const ACCEPTANCE_ATTEMPTS: u32 = 32;
 
