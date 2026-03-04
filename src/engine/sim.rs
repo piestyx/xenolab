@@ -11,6 +11,8 @@ use crate::engine::runlog::{RunEvent, RunLog};
 use crate::engine::world::{WorldRecipe, WorldState};
 
 const INFLUENCE_SCALE: f32 = crate::worldgen::spec::INFLUENCE_SCALE;
+const ORG_MAINTENANCE: f32 = 0.8;
+const ORG_CAPACITY_K: f32 = 0.015;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoiseMode {
@@ -184,7 +186,14 @@ impl Simulator {
             } else {
                 0.0
             };
-            let updated = math::apply_update(current, bias, influence, INFLUENCE_SCALE, noise);
+            let delta = bias + influence * INFLUENCE_SCALE + noise;
+            let updated = if is_organism(node) {
+                let raw =
+                    math::apply_organism_dynamics(current, delta, ORG_MAINTENANCE, ORG_CAPACITY_K);
+                math::clamp01(raw)
+            } else {
+                math::apply_update(current, bias, influence, INFLUENCE_SCALE, noise)
+            };
             let validated = self.require_state_value(node, updated)?;
             next.set(node, validated);
         }
@@ -235,6 +244,10 @@ impl Simulator {
             })
         }
     }
+}
+
+fn is_organism(node: NodeId) -> bool {
+    matches!(node, NodeId::PlantPop | NodeId::FungusLoad | NodeId::BacteriaPop)
 }
 
 fn validate_non_negative(delta: f32, label: &'static str) -> Result<(), SimError> {

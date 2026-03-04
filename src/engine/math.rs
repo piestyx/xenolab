@@ -39,3 +39,25 @@ pub fn apply_update(
 ) -> f32 {
     clamp01(current + bias + influence * influence_scale + noise)
 }
+
+/// Logistic-ish capacity drag that increases near CLAMP_MAX.
+/// Returns a non-negative value to subtract from growth.
+pub fn capacity_drag(current: f32, k: f32) -> f32 {
+    k * current * (current / CLAMP_MAX)
+}
+
+/// Simple maintenance drain (constant).
+pub fn maintenance_drain(m: f32) -> f32 {
+    m
+}
+
+/// Apply organism-specific dynamics after influence and before clamp:
+/// next = current + delta - maintenance - capacity_drag
+pub fn apply_organism_dynamics(
+    current: f32,
+    delta: f32,
+    maintenance: f32,
+    capacity_k: f32,
+) -> f32 {
+    current - maintenance_drain(maintenance) - capacity_drag(current, capacity_k) + delta
+}
