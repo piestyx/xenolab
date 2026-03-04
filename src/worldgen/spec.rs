@@ -1,4 +1,6 @@
-use serde::Serialize;
+use rand::RngCore;
+use rand_chacha::ChaCha8Rng;
+use serde::{Deserialize, Serialize};
 
 use crate::engine::ids::NodeId;
 
@@ -20,6 +22,33 @@ pub const SIGMA_ORGANISM: f32 = 0.5;
 pub const SIGMA_CHEMICAL: f32 = 0.8;
 pub const SIGMA_LATENT: f32 = 0.6;
 pub const SIGMA_ENV: f32 = 0.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Archetype {
+    UvSensitive,
+    NutrientLimited,
+    ToxinDriven,
+    SymbiosisFragile,
+    DetoxEcosystem,
+}
+
+pub const ARCHETYPES: &[Archetype] = &[
+    Archetype::UvSensitive,
+    Archetype::NutrientLimited,
+    Archetype::ToxinDriven,
+    Archetype::SymbiosisFragile,
+    Archetype::DetoxEcosystem,
+];
+
+pub fn pick_archetype(rng: &mut ChaCha8Rng) -> Archetype {
+    let idx = (rng.next_u32() as usize) % ARCHETYPES.len();
+    ARCHETYPES[idx]
+}
+
+pub fn archetype_from_seed(seed: u64) -> Archetype {
+    let idx = (seed as usize) % ARCHETYPES.len();
+    ARCHETYPES[idx]
+}
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 pub enum MenuPolarity {

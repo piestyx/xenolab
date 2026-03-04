@@ -3,6 +3,31 @@ use thiserror::Error;
 
 use crate::engine::ids::{NodeId, ObjectiveId, NODE_COUNT};
 use crate::engine::node::{node_catalog, EdgeSpec, NodeSpec};
+use crate::worldgen::spec::Archetype;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum UvToxinThresholdMode {
+    None,
+    Burn,
+    Create,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct ThresholdConfig {
+    pub uv_toxin_mode: UvToxinThresholdMode,
+    pub uv_cutoff: f32,
+    pub toxin_delta: f32,
+}
+
+impl Default for ThresholdConfig {
+    fn default() -> Self {
+        Self {
+            uv_toxin_mode: UvToxinThresholdMode::None,
+            uv_cutoff: 80.0,
+            toxin_delta: 2.0,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct RecipeMetadata {
@@ -35,6 +60,7 @@ impl Default for RecipeMetadata {
 pub struct WorldRecipe {
     pub seed: u64,
     pub attempt: u32,
+    pub archetype: Archetype,
     pub objective: ObjectiveId,
     pub node_specs: [NodeSpec; NODE_COUNT],
     pub edges: Vec<EdgeSpec>,
@@ -42,6 +68,7 @@ pub struct WorldRecipe {
     pub noise_sigma: [f32; NODE_COUNT],
     pub initial_state: WorldState,
     pub metadata: RecipeMetadata,
+    pub threshold: ThresholdConfig,
 }
 
 impl WorldRecipe {
@@ -55,6 +82,7 @@ impl WorldRecipe {
         Self {
             seed,
             attempt,
+            archetype: crate::worldgen::spec::archetype_from_seed(seed),
             objective: ObjectiveId::for_seed(seed),
             node_specs: node_catalog(),
             edges: Vec::new(),
@@ -62,6 +90,7 @@ impl WorldRecipe {
             noise_sigma,
             initial_state: WorldState::default(),
             metadata: RecipeMetadata::default(),
+            threshold: ThresholdConfig::default(),
         }
     }
 

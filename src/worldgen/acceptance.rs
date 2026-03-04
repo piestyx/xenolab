@@ -2,10 +2,11 @@ use crate::engine::ids::{NodeId, ObjectiveId, NODE_COUNT};
 use crate::engine::interventions::Intervention;
 use crate::engine::node::{node_catalog, EdgeSpec};
 use crate::engine::sim::Simulator;
-use crate::engine::world::{RecipeMetadata, WorldRecipe, WorldState};
+use crate::engine::world::{RecipeMetadata, ThresholdConfig, WorldRecipe, WorldState};
 use crate::worldgen::generator;
 use crate::worldgen::spec::{
     ACCEPTANCE_ATTEMPTS, SIGMA_CHEMICAL, SIGMA_ENV, SIGMA_LATENT, SIGMA_ORGANISM, STABILITY_CAP,
+    archetype_from_seed,
 };
 
 pub fn generate_playable(seed: u64) -> WorldRecipe {
@@ -199,6 +200,7 @@ fn fallback_recipe(seed: u64) -> WorldRecipe {
     WorldRecipe {
         seed,
         attempt: u32::MAX,
+        archetype: archetype_from_seed(seed),
         objective: ObjectiveId::for_seed(seed),
         node_specs: node_catalog(),
         edges,
@@ -217,6 +219,7 @@ fn fallback_recipe(seed: u64) -> WorldRecipe {
             has_twist_toxin_fungus: false,
             has_twist_nutrient_fungus: false,
         },
+        threshold: ThresholdConfig::default(),
     }
 }
 

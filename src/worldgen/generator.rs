@@ -4,12 +4,12 @@ use rand_chacha::ChaCha8Rng;
 
 use crate::engine::ids::{NodeId, ObjectiveId, NODE_COUNT};
 use crate::engine::node::{EdgeSpec, NodeKind};
-use crate::engine::world::{RecipeMetadata, WorldRecipe, WorldState};
+use crate::engine::world::{RecipeMetadata, ThresholdConfig, WorldRecipe, WorldState};
 use crate::worldgen::spec::{
     CONFOUNDER_MENU, FEEDBACK_MENU, MANDATORY_EDGES, MAX_BIAS, MAX_NEG_WEIGHT, MAX_POS_WEIGHT,
     MAX_TWIST_MAGNITUDE, MenuPolarity, MIN_BIAS, MIN_NEG_WEIGHT, MIN_POS_WEIGHT,
     MIN_TWIST_MAGNITUDE, SIGMA_CHEMICAL, SIGMA_ENV, SIGMA_LATENT, SIGMA_ORGANISM, STABILITY_CAP,
-    TWIST_MENU,
+    TWIST_MENU, pick_archetype,
 };
 
 pub fn generate(seed: u64) -> WorldRecipe {
@@ -19,6 +19,7 @@ pub fn generate(seed: u64) -> WorldRecipe {
 pub fn generate_with_attempt(seed: u64, attempt: u32) -> WorldRecipe {
     let attempt_seed = hash_seed_attempt(seed, attempt);
     let mut rng = ChaCha8Rng::seed_from_u64(attempt_seed);
+    let archetype = pick_archetype(&mut rng);
 
     let k_feedback = rng.gen_range(1..=2);
     let k_confound = rng.gen_range(1..=2);
@@ -98,6 +99,7 @@ pub fn generate_with_attempt(seed: u64, attempt: u32) -> WorldRecipe {
     WorldRecipe {
         seed,
         attempt,
+        archetype,
         objective: ObjectiveId::for_seed(seed),
         node_specs: crate::engine::node::node_catalog(),
         edges,
@@ -105,6 +107,7 @@ pub fn generate_with_attempt(seed: u64, attempt: u32) -> WorldRecipe {
         noise_sigma,
         initial_state,
         metadata,
+        threshold: ThresholdConfig::default(),
     }
 }
 
