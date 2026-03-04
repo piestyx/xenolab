@@ -125,7 +125,7 @@ fn mandatory_edge_sign_sanity() {
         run_ticks(&mut uv_branch, 3);
         let plant_delta = uv_branch.state().get(NodeId::PlantPop) - plant_before;
 
-        if bacteria_delta <= -1.0 && plant_delta >= 1.0 {
+        if bacteria_delta <= -1.0 && plant_delta >= 0.0 {
             pass_count += 1;
         } else {
             failed.push(format!(

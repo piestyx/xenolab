@@ -30,7 +30,7 @@ pub const SIGMA_CHEMICAL: f32 = 0.8;
 pub const SIGMA_LATENT: f32 = 0.6;
 pub const SIGMA_ENV: f32 = 0.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Archetype {
     UvSensitive,
     NutrientLimited,

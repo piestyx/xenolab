@@ -8,7 +8,7 @@ use crate::worldgen::spec::{
     Archetype, EdgeTier, MAX_BIAS, MenuPolarity, MIN_BIAS, SIGMA_CHEMICAL, SIGMA_ENV,
     SIGMA_LATENT, SIGMA_ORGANISM, SPICE_MAX_MAG, SPICE_MIN_MAG, STABILITY_CAP,
     SECONDARY_MAX_MAG, SECONDARY_MIN_MAG, PRIMARY_MAX_MAG, PRIMARY_MIN_MAG,
-    incoming_degree_cap, pick_archetype,
+    archetype_from_seed, incoming_degree_cap,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -26,7 +26,7 @@ pub fn generate(seed: u64) -> WorldRecipe {
 pub fn generate_with_attempt(seed: u64, attempt: u32) -> WorldRecipe {
     let attempt_seed = hash_seed_attempt(seed, attempt);
     let mut rng = ChaCha8Rng::seed_from_u64(attempt_seed);
-    let archetype = pick_archetype(&mut rng);
+    let archetype = archetype_from_seed(seed);
     let threshold = sample_threshold(archetype, &mut rng);
 
     let mut edges = Vec::new();
@@ -47,16 +47,18 @@ pub fn generate_with_attempt(seed: u64, attempt: u32) -> WorldRecipe {
         }
     }
 
-    if let Some(optional) = pick_optional_edge(archetype, &mut rng) {
-        let _ = add_edge_tiered(
-            &mut edges,
-            &mut incoming,
-            optional.from,
-            optional.to,
-            optional.polarity,
-            optional.tier,
-            &mut rng,
-        );
+    if edges.len() < 8 {
+        if let Some(optional) = pick_optional_edge(archetype, &mut rng) {
+            let _ = add_edge_tiered(
+                &mut edges,
+                &mut incoming,
+                optional.from,
+                optional.to,
+                optional.polarity,
+                optional.tier,
+                &mut rng,
+            );
+        }
     }
 
     apply_stability_cap(&mut edges);
@@ -112,14 +114,14 @@ pub fn recipe_hash(recipe: &WorldRecipe) -> blake3::Hash {
     }
 }
 
-fn template_for(archetype: Archetype) -> [PlannedEdge; 6] {
+fn template_for(archetype: Archetype) -> Vec<PlannedEdge> {
     match archetype {
-        Archetype::UvSensitive => [
+        Archetype::UvSensitive => vec![
             PlannedEdge {
                 from: NodeId::FungusLoad,
                 to: NodeId::Enzyme,
                 polarity: MenuPolarity::Positive,
-                tier: EdgeTier::Secondary,
+                tier: EdgeTier::Primary,
             },
             PlannedEdge {
                 from: NodeId::UvLevel,
@@ -131,81 +133,11 @@ fn template_for(archetype: Archetype) -> [PlannedEdge; 6] {
                 from: NodeId::Enzyme,
                 to: NodeId::PlantPop,
                 polarity: MenuPolarity::Positive,
-                tier: EdgeTier::Primary,
-            },
-            PlannedEdge {
-                from: NodeId::Toxin,
-                to: NodeId::BacteriaPop,
-                polarity: MenuPolarity::Negative,
-                tier: EdgeTier::Spice,
-            },
-            PlannedEdge {
-                from: NodeId::Toxin,
-                to: NodeId::PlantPop,
-                polarity: MenuPolarity::Negative,
                 tier: EdgeTier::Secondary,
             },
             PlannedEdge {
-                from: NodeId::BacteriaPop,
+                from: NodeId::FungusLoad,
                 to: NodeId::Toxin,
-                polarity: MenuPolarity::Negative,
-                tier: EdgeTier::Primary,
-            },
-        ],
-        Archetype::NutrientLimited => [
-            PlannedEdge {
-                from: NodeId::FungusLoad,
-                to: NodeId::Enzyme,
-                polarity: MenuPolarity::Positive,
-                tier: EdgeTier::Secondary,
-            },
-            PlannedEdge {
-                from: NodeId::UvLevel,
-                to: NodeId::Enzyme,
-                polarity: MenuPolarity::Positive,
-                tier: EdgeTier::Secondary,
-            },
-            PlannedEdge {
-                from: NodeId::Enzyme,
-                to: NodeId::PlantPop,
-                polarity: MenuPolarity::Positive,
-                tier: EdgeTier::Primary,
-            },
-            PlannedEdge {
-                from: NodeId::Toxin,
-                to: NodeId::BacteriaPop,
-                polarity: MenuPolarity::Negative,
-                tier: EdgeTier::Spice,
-            },
-            PlannedEdge {
-                from: NodeId::Toxin,
-                to: NodeId::PlantPop,
-                polarity: MenuPolarity::Negative,
-                tier: EdgeTier::Primary,
-            },
-            PlannedEdge {
-                from: NodeId::Nutrient,
-                to: NodeId::PlantPop,
-                polarity: MenuPolarity::Positive,
-                tier: EdgeTier::Primary,
-            },
-        ],
-        Archetype::ToxinDriven => [
-            PlannedEdge {
-                from: NodeId::FungusLoad,
-                to: NodeId::Enzyme,
-                polarity: MenuPolarity::Positive,
-                tier: EdgeTier::Spice,
-            },
-            PlannedEdge {
-                from: NodeId::UvLevel,
-                to: NodeId::Enzyme,
-                polarity: MenuPolarity::Positive,
-                tier: EdgeTier::Secondary,
-            },
-            PlannedEdge {
-                from: NodeId::Enzyme,
-                to: NodeId::PlantPop,
                 polarity: MenuPolarity::Positive,
                 tier: EdgeTier::Secondary,
             },
@@ -225,21 +157,103 @@ fn template_for(archetype: Archetype) -> [PlannedEdge; 6] {
                 from: NodeId::BacteriaPop,
                 to: NodeId::Toxin,
                 polarity: MenuPolarity::Negative,
-                tier: EdgeTier::Primary,
+                tier: EdgeTier::Secondary,
             },
         ],
-        Archetype::SymbiosisFragile => [
+        Archetype::NutrientLimited => vec![
             PlannedEdge {
                 from: NodeId::FungusLoad,
                 to: NodeId::Enzyme,
                 polarity: MenuPolarity::Positive,
-                tier: EdgeTier::Primary,
+                tier: EdgeTier::Secondary,
             },
             PlannedEdge {
                 from: NodeId::UvLevel,
                 to: NodeId::Enzyme,
                 polarity: MenuPolarity::Positive,
                 tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::Enzyme,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::Toxin,
+                to: NodeId::BacteriaPop,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::Toxin,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::Nutrient,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::PlantPop,
+                to: NodeId::Nutrient,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Primary,
+            },
+        ],
+        Archetype::ToxinDriven => vec![
+            PlannedEdge {
+                from: NodeId::FungusLoad,
+                to: NodeId::Enzyme,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Spice,
+            },
+            PlannedEdge {
+                from: NodeId::UvLevel,
+                to: NodeId::Enzyme,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::Enzyme,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::Toxin,
+                to: NodeId::BacteriaPop,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::Toxin,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::BacteriaPop,
+                to: NodeId::Toxin,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Primary,
+            },
+        ],
+        Archetype::SymbiosisFragile => vec![
+            PlannedEdge {
+                from: NodeId::FungusLoad,
+                to: NodeId::Enzyme,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::UvLevel,
+                to: NodeId::Enzyme,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Spice,
             },
             PlannedEdge {
                 from: NodeId::Enzyme,
@@ -260,13 +274,25 @@ fn template_for(archetype: Archetype) -> [PlannedEdge; 6] {
                 tier: EdgeTier::Primary,
             },
             PlannedEdge {
-                from: NodeId::Nutrient,
-                to: NodeId::FungusLoad,
+                from: NodeId::UvLevel,
+                to: NodeId::Toxin,
                 polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::BacteriaPop,
+                to: NodeId::Toxin,
+                polarity: MenuPolarity::Negative,
                 tier: EdgeTier::Spice,
             },
+            PlannedEdge {
+                from: NodeId::PlantPop,
+                to: NodeId::Nutrient,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Secondary,
+            },
         ],
-        Archetype::DetoxEcosystem => [
+        Archetype::DetoxEcosystem => vec![
             PlannedEdge {
                 from: NodeId::FungusLoad,
                 to: NodeId::Enzyme,
@@ -320,24 +346,18 @@ fn pick_optional_edge(archetype: Archetype, rng: &mut ChaCha8Rng) -> Option<Plan
                 polarity: MenuPolarity::Negative,
                 tier: EdgeTier::Spice,
             },
-            PlannedEdge {
-                from: NodeId::FungusLoad,
-                to: NodeId::Toxin,
-                polarity: MenuPolarity::Positive,
-                tier: EdgeTier::Spice,
-            },
         ],
         Archetype::NutrientLimited => &[
-            PlannedEdge {
-                from: NodeId::PlantPop,
-                to: NodeId::Nutrient,
-                polarity: MenuPolarity::Negative,
-                tier: EdgeTier::Secondary,
-            },
             PlannedEdge {
                 from: NodeId::BacteriaPop,
                 to: NodeId::Nutrient,
                 polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Spice,
+            },
+            PlannedEdge {
+                from: NodeId::UvLevel,
+                to: NodeId::Toxin,
+                polarity: MenuPolarity::Either,
                 tier: EdgeTier::Spice,
             },
         ],
@@ -358,14 +378,8 @@ fn pick_optional_edge(archetype: Archetype, rng: &mut ChaCha8Rng) -> Option<Plan
         Archetype::SymbiosisFragile => &[
             PlannedEdge {
                 from: NodeId::Nutrient,
-                to: NodeId::PlantPop,
+                to: NodeId::FungusLoad,
                 polarity: MenuPolarity::Positive,
-                tier: EdgeTier::Secondary,
-            },
-            PlannedEdge {
-                from: NodeId::PlantPop,
-                to: NodeId::Nutrient,
-                polarity: MenuPolarity::Negative,
                 tier: EdgeTier::Spice,
             },
         ],
