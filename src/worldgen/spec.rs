@@ -37,7 +37,7 @@ pub struct EdgeMenuItem {
     pub is_twist: bool,
 }
 
-pub const MANDATORY_EDGES: [EdgeMenuItem; 4] = [
+pub const MANDATORY_EDGES: [EdgeMenuItem; 5] = [
     EdgeMenuItem {
         id: "fungus_enzyme",
         from: NodeId::FungusLoad,
@@ -63,6 +63,13 @@ pub const MANDATORY_EDGES: [EdgeMenuItem; 4] = [
         id: "toxin_bacteria",
         from: NodeId::Toxin,
         to: NodeId::BacteriaPop,
+        polarity: MenuPolarity::Negative,
+        is_twist: false,
+    },
+    EdgeMenuItem {
+        id: "toxin_plant_hazard",
+        from: NodeId::Toxin,
+        to: NodeId::PlantPop,
         polarity: MenuPolarity::Negative,
         is_twist: false,
     },

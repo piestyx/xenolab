@@ -47,7 +47,8 @@ fn check_stability(recipe: &WorldRecipe) -> bool {
     let plant_delta = (sim.state().get(NodeId::PlantPop) - start.get(NodeId::PlantPop)).abs();
     let toxin_delta = (sim.state().get(NodeId::Toxin) - start.get(NodeId::Toxin)).abs();
     let bacteria_delta = (sim.state().get(NodeId::BacteriaPop) - start.get(NodeId::BacteriaPop)).abs();
-    plant_delta >= 5.0 || toxin_delta >= 5.0 || bacteria_delta >= 5.0
+    (plant_delta >= 5.0 || toxin_delta >= 5.0 || bacteria_delta >= 5.0)
+        && check_no_noise_saturation(recipe)
 }
 
 fn check_uv_signature(recipe: &WorldRecipe) -> bool {
@@ -114,6 +115,27 @@ fn run_ticks(sim: &mut Simulator, count: usize) -> Result<(), ()> {
     Ok(())
 }
 
+fn check_no_noise_saturation(recipe: &WorldRecipe) -> bool {
+    let mut sim = Simulator::new_no_noise(recipe.clone());
+    let mut current_streak = 0_u32;
+    let mut max_streak = 0_u32;
+
+    for _ in 0..80 {
+        if sim.apply(Intervention::AdvanceTime).is_err() {
+            return false;
+        }
+        let plant = sim.state().get(NodeId::PlantPop);
+        if plant >= 95.0 {
+            current_streak += 1;
+            max_streak = max_streak.max(current_streak);
+        } else {
+            current_streak = 0;
+        }
+    }
+
+    max_streak <= 30
+}
+
 fn fallback_recipe(seed: u64) -> WorldRecipe {
     let mut edges = vec![
         EdgeSpec {
@@ -129,7 +151,7 @@ fn fallback_recipe(seed: u64) -> WorldRecipe {
         EdgeSpec {
             from: NodeId::Enzyme,
             to: NodeId::PlantPop,
-            weight: 0.8,
+            weight: 0.6,
         },
         EdgeSpec {
             from: NodeId::Toxin,
@@ -137,9 +159,19 @@ fn fallback_recipe(seed: u64) -> WorldRecipe {
             weight: -1.1,
         },
         EdgeSpec {
+            from: NodeId::Toxin,
+            to: NodeId::PlantPop,
+            weight: -1.0,
+        },
+        EdgeSpec {
             from: NodeId::BacteriaPop,
             to: NodeId::Toxin,
-            weight: -0.8,
+            weight: -0.5,
+        },
+        EdgeSpec {
+            from: NodeId::FungusLoad,
+            to: NodeId::Toxin,
+            weight: 0.7,
         },
         EdgeSpec {
             from: NodeId::PlantPop,
@@ -149,7 +181,7 @@ fn fallback_recipe(seed: u64) -> WorldRecipe {
         EdgeSpec {
             from: NodeId::Nutrient,
             to: NodeId::PlantPop,
-            weight: 1.0,
+            weight: 0.5,
         },
     ];
     apply_stability_cap(&mut edges);
@@ -173,13 +205,13 @@ fn fallback_recipe(seed: u64) -> WorldRecipe {
         biases: [0.0; NODE_COUNT],
         noise_sigma,
         initial_state: WorldState {
-            values: [50.0, 40.0, 20.0, 50.0, 20.0, 55.0, 30.0],
+            values: [50.0, 45.0, 45.0, 50.0, 25.0, 50.0, 30.0],
         },
         metadata: RecipeMetadata {
             has_nutrient_direct: true,
             has_uv_toxin: false,
             has_bacteria_toxin_decay: true,
-            has_fungus_toxin_prod: false,
+            has_fungus_toxin_prod: true,
             has_plant_nutrient_deplete: true,
             has_bacteria_nutrient_recycle: false,
             has_twist_toxin_fungus: false,

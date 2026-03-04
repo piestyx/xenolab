@@ -68,6 +68,7 @@ pub fn generate_with_attempt(seed: u64, attempt: u32) -> WorldRecipe {
 
     apply_stability_cap(&mut edges);
     edges.sort_by_key(|edge| (edge.from.as_index(), edge.to.as_index()));
+    debug_assert!(has_edge(&edges, NodeId::Toxin, NodeId::PlantPop));
 
     let metadata = derive_metadata(&edges);
     let biases = sample_biases(&mut rng);
@@ -255,4 +256,8 @@ fn node_kind(node: NodeId) -> NodeKind {
         NodeId::Toxin | NodeId::Nutrient => NodeKind::Chemical,
         NodeId::Enzyme => NodeKind::Latent,
     }
+}
+
+fn has_edge(edges: &[EdgeSpec], from: NodeId, to: NodeId) -> bool {
+    edges.iter().any(|edge| edge.from == from && edge.to == to)
 }
