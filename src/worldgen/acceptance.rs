@@ -16,7 +16,7 @@ pub fn generate_playable(seed: u64) -> WorldRecipe {
             return recipe;
         }
     }
-    fallback_recipe(seed)
+    generator::generate_with_attempt(seed, 0)
 }
 
 fn is_playable(recipe: &WorldRecipe) -> bool {
@@ -28,10 +28,20 @@ fn is_playable(recipe: &WorldRecipe) -> bool {
 }
 
 fn check_structure(recipe: &WorldRecipe) -> bool {
-    if recipe.metadata.has_nutrient_direct {
-        return true;
-    }
-    recipe.metadata.has_plant_nutrient_deplete || recipe.metadata.has_bacteria_nutrient_recycle
+    let has_plant_growth_path = recipe
+        .edges
+        .iter()
+        .any(|edge| edge.from == NodeId::Enzyme && edge.to == NodeId::PlantPop && edge.weight > 0.0);
+    let has_plant_hazard_path = recipe
+        .edges
+        .iter()
+        .any(|edge| edge.from == NodeId::Toxin && edge.to == NodeId::PlantPop && edge.weight < 0.0);
+    let has_toxin_loop = recipe
+        .edges
+        .iter()
+        .any(|edge| edge.from == NodeId::BacteriaPop && edge.to == NodeId::Toxin);
+
+    has_plant_growth_path && has_plant_hazard_path && has_toxin_loop
 }
 
 fn check_stability(recipe: &WorldRecipe) -> bool {

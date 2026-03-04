@@ -18,6 +18,13 @@ pub const MAX_TWIST_MAGNITUDE: f32 = 0.9;
 pub const MIN_BIAS: f32 = -0.2;
 pub const MAX_BIAS: f32 = 0.2;
 
+pub const PRIMARY_MIN_MAG: f32 = 0.9;
+pub const PRIMARY_MAX_MAG: f32 = 1.2;
+pub const SECONDARY_MIN_MAG: f32 = 0.4;
+pub const SECONDARY_MAX_MAG: f32 = 0.7;
+pub const SPICE_MIN_MAG: f32 = 0.3;
+pub const SPICE_MAX_MAG: f32 = 0.5;
+
 pub const SIGMA_ORGANISM: f32 = 0.5;
 pub const SIGMA_CHEMICAL: f32 = 0.8;
 pub const SIGMA_LATENT: f32 = 0.6;
@@ -48,6 +55,25 @@ pub fn pick_archetype(rng: &mut ChaCha8Rng) -> Archetype {
 pub fn archetype_from_seed(seed: u64) -> Archetype {
     let idx = (seed as usize) % ARCHETYPES.len();
     ARCHETYPES[idx]
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EdgeTier {
+    Primary,
+    Secondary,
+    Spice,
+}
+
+pub fn incoming_degree_cap(node: NodeId) -> usize {
+    match node {
+        NodeId::Enzyme => 2,
+        NodeId::PlantPop => 3,
+        NodeId::Toxin => 2,
+        NodeId::Nutrient => 2,
+        NodeId::BacteriaPop => 2,
+        NodeId::FungusLoad => 2,
+        NodeId::UvLevel => 0,
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]

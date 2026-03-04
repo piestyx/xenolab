@@ -1,4 +1,3 @@
-use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
@@ -6,11 +5,19 @@ use crate::engine::ids::{NodeId, ObjectiveId, NODE_COUNT};
 use crate::engine::node::{EdgeSpec, NodeKind};
 use crate::engine::world::{RecipeMetadata, ThresholdConfig, WorldRecipe, WorldState};
 use crate::worldgen::spec::{
-    CONFOUNDER_MENU, FEEDBACK_MENU, MANDATORY_EDGES, MAX_BIAS, MAX_NEG_WEIGHT, MAX_POS_WEIGHT,
-    MAX_TWIST_MAGNITUDE, MenuPolarity, MIN_BIAS, MIN_NEG_WEIGHT, MIN_POS_WEIGHT,
-    MIN_TWIST_MAGNITUDE, SIGMA_CHEMICAL, SIGMA_ENV, SIGMA_LATENT, SIGMA_ORGANISM, STABILITY_CAP,
-    TWIST_MENU, pick_archetype,
+    Archetype, EdgeTier, MAX_BIAS, MenuPolarity, MIN_BIAS, SIGMA_CHEMICAL, SIGMA_ENV,
+    SIGMA_LATENT, SIGMA_ORGANISM, SPICE_MAX_MAG, SPICE_MIN_MAG, STABILITY_CAP,
+    SECONDARY_MAX_MAG, SECONDARY_MIN_MAG, PRIMARY_MAX_MAG, PRIMARY_MIN_MAG,
+    incoming_degree_cap, pick_archetype,
 };
+
+#[derive(Debug, Clone, Copy)]
+struct PlannedEdge {
+    from: NodeId,
+    to: NodeId,
+    polarity: MenuPolarity,
+    tier: EdgeTier,
+}
 
 pub fn generate(seed: u64) -> WorldRecipe {
     generate_with_attempt(seed, 0)
@@ -21,55 +28,38 @@ pub fn generate_with_attempt(seed: u64, attempt: u32) -> WorldRecipe {
     let mut rng = ChaCha8Rng::seed_from_u64(attempt_seed);
     let archetype = pick_archetype(&mut rng);
 
-    let k_feedback = rng.gen_range(1..=2);
-    let k_confound = rng.gen_range(1..=2);
-    let k_twist = rng.gen_range(0..=1);
-
-    let mut feedback_idx = choose_indices(FEEDBACK_MENU.len(), k_feedback, &mut rng);
-    let mut confound_idx = choose_indices(CONFOUNDER_MENU.len(), k_confound, &mut rng);
-    let twist_idx = choose_indices(TWIST_MENU.len(), k_twist, &mut rng);
-
-    enforce_nutrient_constraint(&mut feedback_idx, &mut confound_idx, &mut rng);
-
-    feedback_idx.sort_unstable();
-    confound_idx.sort_unstable();
-
     let mut edges = Vec::new();
-    for item in MANDATORY_EDGES {
-        edges.push(EdgeSpec {
-            from: item.from,
-            to: item.to,
-            weight: sample_weight(item.polarity, item.is_twist, &mut rng),
-        });
+    let mut incoming = [0_usize; NODE_COUNT];
+    for planned in template_for(archetype) {
+        let added = add_edge_tiered(
+            &mut edges,
+            &mut incoming,
+            planned.from,
+            planned.to,
+            planned.polarity,
+            planned.tier,
+            &mut rng,
+        );
+        if !added {
+            // Deterministic fallback for this attempt: preserve sparsity/caps.
+            return fallback_for_attempt(seed, attempt, archetype);
+        }
     }
-    for idx in feedback_idx {
-        let item = FEEDBACK_MENU[idx];
-        edges.push(EdgeSpec {
-            from: item.from,
-            to: item.to,
-            weight: sample_weight(item.polarity, item.is_twist, &mut rng),
-        });
-    }
-    for idx in confound_idx {
-        let item = CONFOUNDER_MENU[idx];
-        edges.push(EdgeSpec {
-            from: item.from,
-            to: item.to,
-            weight: sample_weight(item.polarity, item.is_twist, &mut rng),
-        });
-    }
-    for idx in twist_idx {
-        let item = TWIST_MENU[idx];
-        edges.push(EdgeSpec {
-            from: item.from,
-            to: item.to,
-            weight: sample_weight(item.polarity, item.is_twist, &mut rng),
-        });
+
+    if let Some(optional) = pick_optional_edge(archetype, &mut rng) {
+        let _ = add_edge_tiered(
+            &mut edges,
+            &mut incoming,
+            optional.from,
+            optional.to,
+            optional.polarity,
+            optional.tier,
+            &mut rng,
+        );
     }
 
     apply_stability_cap(&mut edges);
     edges.sort_by_key(|edge| (edge.from.as_index(), edge.to.as_index()));
-    debug_assert!(has_edge(&edges, NodeId::Toxin, NodeId::PlantPop));
 
     let metadata = derive_metadata(&edges);
     let biases = sample_biases(&mut rng);
@@ -96,6 +86,9 @@ pub fn generate_with_attempt(seed: u64, attempt: u32) -> WorldRecipe {
         ],
     };
 
+    debug_assert!(edges.len() >= 6 && edges.len() <= 8);
+    debug_assert!(validate_degree_caps(&edges));
+
     WorldRecipe {
         seed,
         attempt,
@@ -118,69 +111,390 @@ pub fn recipe_hash(recipe: &WorldRecipe) -> blake3::Hash {
     }
 }
 
-fn choose_indices(len: usize, k: usize, rng: &mut ChaCha8Rng) -> Vec<usize> {
-    let mut idx: Vec<usize> = (0..len).collect();
-    idx.shuffle(rng);
-    idx.truncate(k.min(len));
-    idx
+fn template_for(archetype: Archetype) -> [PlannedEdge; 6] {
+    match archetype {
+        Archetype::UvSensitive => [
+            PlannedEdge {
+                from: NodeId::FungusLoad,
+                to: NodeId::Enzyme,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::UvLevel,
+                to: NodeId::Enzyme,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::Enzyme,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::Toxin,
+                to: NodeId::BacteriaPop,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Spice,
+            },
+            PlannedEdge {
+                from: NodeId::Toxin,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::BacteriaPop,
+                to: NodeId::Toxin,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Primary,
+            },
+        ],
+        Archetype::NutrientLimited => [
+            PlannedEdge {
+                from: NodeId::FungusLoad,
+                to: NodeId::Enzyme,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::UvLevel,
+                to: NodeId::Enzyme,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::Enzyme,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::Toxin,
+                to: NodeId::BacteriaPop,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Spice,
+            },
+            PlannedEdge {
+                from: NodeId::Toxin,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::Nutrient,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Primary,
+            },
+        ],
+        Archetype::ToxinDriven => [
+            PlannedEdge {
+                from: NodeId::FungusLoad,
+                to: NodeId::Enzyme,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Spice,
+            },
+            PlannedEdge {
+                from: NodeId::UvLevel,
+                to: NodeId::Enzyme,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::Enzyme,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::Toxin,
+                to: NodeId::BacteriaPop,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::Toxin,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::BacteriaPop,
+                to: NodeId::Toxin,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Primary,
+            },
+        ],
+        Archetype::SymbiosisFragile => [
+            PlannedEdge {
+                from: NodeId::FungusLoad,
+                to: NodeId::Enzyme,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::UvLevel,
+                to: NodeId::Enzyme,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::Enzyme,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::Toxin,
+                to: NodeId::BacteriaPop,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::Toxin,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::Nutrient,
+                to: NodeId::FungusLoad,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Spice,
+            },
+        ],
+        Archetype::DetoxEcosystem => [
+            PlannedEdge {
+                from: NodeId::FungusLoad,
+                to: NodeId::Enzyme,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::UvLevel,
+                to: NodeId::Enzyme,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Spice,
+            },
+            PlannedEdge {
+                from: NodeId::Enzyme,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::Toxin,
+                to: NodeId::BacteriaPop,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::Toxin,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Primary,
+            },
+            PlannedEdge {
+                from: NodeId::BacteriaPop,
+                to: NodeId::Toxin,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Primary,
+            },
+        ],
+    }
 }
 
-fn enforce_nutrient_constraint(
-    feedback_idx: &mut Vec<usize>,
-    confound_idx: &mut Vec<usize>,
+fn pick_optional_edge(archetype: Archetype, rng: &mut ChaCha8Rng) -> Option<PlannedEdge> {
+    if !rng.gen_bool(0.75) {
+        return None;
+    }
+
+    let choices: &[PlannedEdge] = match archetype {
+        Archetype::UvSensitive => &[
+            PlannedEdge {
+                from: NodeId::UvLevel,
+                to: NodeId::Toxin,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Spice,
+            },
+            PlannedEdge {
+                from: NodeId::FungusLoad,
+                to: NodeId::Toxin,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Spice,
+            },
+        ],
+        Archetype::NutrientLimited => &[
+            PlannedEdge {
+                from: NodeId::PlantPop,
+                to: NodeId::Nutrient,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::BacteriaPop,
+                to: NodeId::Nutrient,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Spice,
+            },
+        ],
+        Archetype::ToxinDriven => &[
+            PlannedEdge {
+                from: NodeId::FungusLoad,
+                to: NodeId::Toxin,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Spice,
+            },
+            PlannedEdge {
+                from: NodeId::UvLevel,
+                to: NodeId::Toxin,
+                polarity: MenuPolarity::Either,
+                tier: EdgeTier::Spice,
+            },
+        ],
+        Archetype::SymbiosisFragile => &[
+            PlannedEdge {
+                from: NodeId::Nutrient,
+                to: NodeId::PlantPop,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Secondary,
+            },
+            PlannedEdge {
+                from: NodeId::PlantPop,
+                to: NodeId::Nutrient,
+                polarity: MenuPolarity::Negative,
+                tier: EdgeTier::Spice,
+            },
+        ],
+        Archetype::DetoxEcosystem => &[
+            PlannedEdge {
+                from: NodeId::UvLevel,
+                to: NodeId::Toxin,
+                polarity: MenuPolarity::Either,
+                tier: EdgeTier::Spice,
+            },
+            PlannedEdge {
+                from: NodeId::FungusLoad,
+                to: NodeId::Toxin,
+                polarity: MenuPolarity::Positive,
+                tier: EdgeTier::Spice,
+            },
+        ],
+    };
+
+    let idx = rng.gen_range(0..choices.len());
+    Some(choices[idx])
+}
+
+fn add_edge_tiered(
+    edges: &mut Vec<EdgeSpec>,
+    incoming: &mut [usize; NODE_COUNT],
+    from: NodeId,
+    to: NodeId,
+    polarity: MenuPolarity,
+    tier: EdgeTier,
     rng: &mut ChaCha8Rng,
-) {
-    let has_nutrient_direct = confound_idx.contains(&0);
-    if has_nutrient_direct {
-        return;
+) -> bool {
+    if edges.iter().any(|edge| edge.from == from && edge.to == to) {
+        return false;
     }
 
-    let has_plant_nutrient = feedback_idx.contains(&1);
-    let has_bacteria_nutrient = confound_idx.contains(&2);
-    if has_plant_nutrient || has_bacteria_nutrient {
-        return;
+    let to_idx = to.as_index();
+    let cap = incoming_degree_cap(to);
+    if incoming[to_idx] >= cap {
+        return false;
     }
 
-    let choose_feedback = rng.gen_bool(0.5);
-    if choose_feedback {
-        if feedback_idx.is_empty() {
-            feedback_idx.push(1);
-        } else {
-            feedback_idx[0] = 1;
+    let weight = sample_tiered_weight(polarity, tier, rng);
+    edges.push(EdgeSpec { from, to, weight });
+    incoming[to_idx] += 1;
+    true
+}
+
+fn sample_tiered_weight(polarity: MenuPolarity, tier: EdgeTier, rng: &mut ChaCha8Rng) -> f32 {
+    let (min_mag, max_mag) = match tier {
+        EdgeTier::Primary => (PRIMARY_MIN_MAG, PRIMARY_MAX_MAG),
+        EdgeTier::Secondary => (SECONDARY_MIN_MAG, SECONDARY_MAX_MAG),
+        EdgeTier::Spice => (SPICE_MIN_MAG, SPICE_MAX_MAG),
+    };
+    let mag = rng.gen_range(min_mag..=max_mag);
+
+    match polarity {
+        MenuPolarity::Positive => mag,
+        MenuPolarity::Negative => -mag,
+        MenuPolarity::Either => {
+            if rng.gen_bool(0.5) {
+                mag
+            } else {
+                -mag
+            }
         }
-    } else if confound_idx.is_empty() {
-        confound_idx.push(2);
-    } else {
-        confound_idx[0] = 2;
     }
 }
 
-fn sample_weight(polarity: MenuPolarity, is_twist: bool, rng: &mut ChaCha8Rng) -> f32 {
-    if is_twist {
-        let magnitude = rng.gen_range(MIN_TWIST_MAGNITUDE..=MAX_TWIST_MAGNITUDE);
-        return match polarity {
-            MenuPolarity::Positive => magnitude,
-            MenuPolarity::Negative => -magnitude,
-            MenuPolarity::Either => {
-                if rng.gen_bool(0.5) {
-                    magnitude
-                } else {
-                    -magnitude
-                }
-            }
+fn fallback_for_attempt(seed: u64, attempt: u32, archetype: Archetype) -> WorldRecipe {
+    let mut edges = vec![
+        EdgeSpec {
+            from: NodeId::FungusLoad,
+            to: NodeId::Enzyme,
+            weight: 0.6,
+        },
+        EdgeSpec {
+            from: NodeId::UvLevel,
+            to: NodeId::Enzyme,
+            weight: 1.0,
+        },
+        EdgeSpec {
+            from: NodeId::Enzyme,
+            to: NodeId::PlantPop,
+            weight: 1.0,
+        },
+        EdgeSpec {
+            from: NodeId::Toxin,
+            to: NodeId::BacteriaPop,
+            weight: -0.4,
+        },
+        EdgeSpec {
+            from: NodeId::Toxin,
+            to: NodeId::PlantPop,
+            weight: -1.0,
+        },
+        EdgeSpec {
+            from: NodeId::BacteriaPop,
+            to: NodeId::Toxin,
+            weight: -1.0,
+        },
+    ];
+    apply_stability_cap(&mut edges);
+    edges.sort_by_key(|edge| (edge.from.as_index(), edge.to.as_index()));
+
+    let metadata = derive_metadata(&edges);
+    let mut noise_sigma = [0.0; NODE_COUNT];
+    for node in NodeId::ALL {
+        noise_sigma[node.as_index()] = match node_kind(node) {
+            NodeKind::Env => SIGMA_ENV,
+            NodeKind::Organism => SIGMA_ORGANISM,
+            NodeKind::Chemical => SIGMA_CHEMICAL,
+            NodeKind::Latent => SIGMA_LATENT,
         };
     }
 
-    match polarity {
-        MenuPolarity::Positive => rng.gen_range(MIN_POS_WEIGHT..=MAX_POS_WEIGHT),
-        MenuPolarity::Negative => rng.gen_range(MIN_NEG_WEIGHT..=MAX_NEG_WEIGHT),
-        MenuPolarity::Either => {
-            if rng.gen_bool(0.5) {
-                rng.gen_range(MIN_POS_WEIGHT..=MAX_POS_WEIGHT)
-            } else {
-                rng.gen_range(MIN_NEG_WEIGHT..=MAX_NEG_WEIGHT)
-            }
-        }
+    WorldRecipe {
+        seed,
+        attempt,
+        archetype,
+        objective: ObjectiveId::for_seed(seed),
+        node_specs: crate::engine::node::node_catalog(),
+        edges,
+        biases: [0.0; NODE_COUNT],
+        noise_sigma,
+        initial_state: WorldState {
+            values: [50.0, 45.0, 45.0, 50.0, 25.0, 50.0, 30.0],
+        },
+        metadata,
+        threshold: ThresholdConfig::default(),
     }
 }
 
@@ -234,6 +548,18 @@ fn derive_metadata(edges: &[EdgeSpec]) -> RecipeMetadata {
     metadata
 }
 
+fn validate_degree_caps(edges: &[EdgeSpec]) -> bool {
+    let mut incoming = [0_usize; NODE_COUNT];
+    for edge in edges {
+        let idx = edge.to.as_index();
+        incoming[idx] += 1;
+        if incoming[idx] > incoming_degree_cap(edge.to) {
+            return false;
+        }
+    }
+    incoming[NodeId::Enzyme.as_index()] == 2
+}
+
 fn sample_biases(rng: &mut ChaCha8Rng) -> [f32; NODE_COUNT] {
     let mut biases = [0.0; NODE_COUNT];
     for node in NodeId::ALL {
@@ -259,8 +585,4 @@ fn node_kind(node: NodeId) -> NodeKind {
         NodeId::Toxin | NodeId::Nutrient => NodeKind::Chemical,
         NodeId::Enzyme => NodeKind::Latent,
     }
-}
-
-fn has_edge(edges: &[EdgeSpec], from: NodeId, to: NodeId) -> bool {
-    edges.iter().any(|edge| edge.from == from && edge.to == to)
 }
