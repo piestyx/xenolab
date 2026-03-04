@@ -3,7 +3,7 @@ use rand_chacha::ChaCha8Rng;
 
 use crate::engine::ids::{NodeId, ObjectiveId, NODE_COUNT};
 use crate::engine::node::{EdgeSpec, NodeKind};
-use crate::engine::world::{RecipeMetadata, ThresholdConfig, WorldRecipe, WorldState};
+use crate::engine::world::{RecipeMetadata, ThresholdConfig, UvToxinThresholdMode, WorldRecipe, WorldState};
 use crate::worldgen::spec::{
     Archetype, EdgeTier, MAX_BIAS, MenuPolarity, MIN_BIAS, SIGMA_CHEMICAL, SIGMA_ENV,
     SIGMA_LATENT, SIGMA_ORGANISM, SPICE_MAX_MAG, SPICE_MIN_MAG, STABILITY_CAP,
@@ -27,6 +27,7 @@ pub fn generate_with_attempt(seed: u64, attempt: u32) -> WorldRecipe {
     let attempt_seed = hash_seed_attempt(seed, attempt);
     let mut rng = ChaCha8Rng::seed_from_u64(attempt_seed);
     let archetype = pick_archetype(&mut rng);
+    let threshold = sample_threshold(archetype, &mut rng);
 
     let mut edges = Vec::new();
     let mut incoming = [0_usize; NODE_COUNT];
@@ -100,7 +101,7 @@ pub fn generate_with_attempt(seed: u64, attempt: u32) -> WorldRecipe {
         noise_sigma,
         initial_state,
         metadata,
-        threshold: ThresholdConfig::default(),
+        threshold,
     }
 }
 
@@ -431,6 +432,28 @@ fn sample_tiered_weight(polarity: MenuPolarity, tier: EdgeTier, rng: &mut ChaCha
                 -mag
             }
         }
+    }
+}
+
+fn sample_threshold(archetype: Archetype, rng: &mut ChaCha8Rng) -> ThresholdConfig {
+    let eligible = matches!(
+        archetype,
+        Archetype::UvSensitive | Archetype::ToxinDriven | Archetype::DetoxEcosystem
+    );
+    if !eligible || !rng.gen_bool(0.30) {
+        return ThresholdConfig::default();
+    }
+
+    let mode = if rng.gen_bool(0.70) {
+        UvToxinThresholdMode::Burn
+    } else {
+        UvToxinThresholdMode::Create
+    };
+
+    ThresholdConfig {
+        uv_toxin_mode: mode,
+        uv_cutoff: 80.0,
+        toxin_delta: 2.0,
     }
 }
 

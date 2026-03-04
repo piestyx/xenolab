@@ -8,11 +8,11 @@ use crate::engine::interventions::Intervention;
 use crate::engine::math;
 use crate::engine::measurement::{scan_chemicals, scan_population, sample_standard_normal};
 use crate::engine::runlog::{RunEvent, RunLog};
-use crate::engine::world::{WorldRecipe, WorldState};
+use crate::engine::world::{UvToxinThresholdMode, WorldRecipe, WorldState};
 
 const INFLUENCE_SCALE: f32 = crate::worldgen::spec::INFLUENCE_SCALE;
-const ORG_MAINTENANCE: f32 = 0.8;
-const ORG_CAPACITY_K: f32 = 0.015;
+const ORG_MAINTENANCE: f32 = 1.0;
+const ORG_CAPACITY_K: f32 = 0.025;
 const TOXIN_BASE_DECAY: f32 = 0.4;
 const NUTRIENT_BASE_DECAY: f32 = 0.2;
 
@@ -200,7 +200,11 @@ impl Simulator {
                     NodeId::Nutrient => NUTRIENT_BASE_DECAY,
                     _ => 0.0,
                 };
-                math::clamp01(math::apply_base_decay(raw, decay))
+                let mut chemical = math::apply_base_decay(raw, decay);
+                if node == NodeId::Toxin {
+                    chemical = self.apply_uv_toxin_threshold(chemical, next.get(NodeId::UvLevel));
+                }
+                math::clamp01(chemical)
             } else {
                 math::apply_update(current, bias, influence, INFLUENCE_SCALE, noise)
             };
@@ -252,6 +256,19 @@ impl Simulator {
                 node: node.stable_name().to_string(),
                 value,
             })
+        }
+    }
+
+    fn apply_uv_toxin_threshold(&self, toxin_value: f32, uv_level: f32) -> f32 {
+        let threshold = self.recipe.threshold;
+        if uv_level < threshold.uv_cutoff {
+            return toxin_value;
+        }
+
+        match threshold.uv_toxin_mode {
+            UvToxinThresholdMode::None => toxin_value,
+            UvToxinThresholdMode::Burn => toxin_value - threshold.toxin_delta,
+            UvToxinThresholdMode::Create => toxin_value + threshold.toxin_delta,
         }
     }
 }
