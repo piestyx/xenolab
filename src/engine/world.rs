@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::engine::ids::{NodeId, ObjectiveId, NODE_COUNT};
 use crate::engine::node::{node_catalog, EdgeSpec, NodeSpec};
@@ -63,6 +64,11 @@ impl WorldRecipe {
             metadata: RecipeMetadata::default(),
         }
     }
+
+    pub fn recipe_hash(&self) -> Result<blake3::Hash, WorldError> {
+        let bytes = serde_json::to_vec(self)?;
+        Ok(blake3::hash(&bytes))
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -95,4 +101,10 @@ impl WorldState {
 
 pub fn clamp_0_100(value: f32) -> f32 {
     value.clamp(0.0, 100.0)
+}
+
+#[derive(Debug, Error)]
+pub enum WorldError {
+    #[error("failed to serialize world recipe: {0}")]
+    Serialize(#[from] serde_json::Error),
 }
