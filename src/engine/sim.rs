@@ -5,10 +5,12 @@ use thiserror::Error;
 use crate::engine::graph::Graph;
 use crate::engine::ids::NodeId;
 use crate::engine::interventions::Intervention;
+use crate::engine::math;
 use crate::engine::measurement::{scan_chemicals, scan_population, sample_standard_normal};
 use crate::engine::runlog::{RunEvent, RunLog};
-use crate::engine::world::{clamp_0_100, WorldRecipe, WorldState};
-use crate::worldgen::spec::INFLUENCE_SCALE;
+use crate::engine::world::{WorldRecipe, WorldState};
+
+const INFLUENCE_SCALE: f32 = crate::worldgen::spec::INFLUENCE_SCALE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoiseMode {
@@ -20,6 +22,10 @@ pub enum NoiseMode {
 pub enum SimError {
     #[error("delta value for {0} must be finite and >= 0")]
     InvalidDelta(&'static str),
+    #[error("invalid edge index from={from} to={to}")]
+    InvalidEdgeIndex { from: usize, to: usize },
+    #[error("invalid state value at node {node}: {value}")]
+    InvalidStateValue { node: String, value: f32 },
 }
 
 pub struct Simulator {
@@ -91,7 +97,7 @@ impl Simulator {
         let mut measurements = Vec::new();
         self.apply_intervention(&action, &mut measurements)?;
         if action.ticks_time() {
-            self.tick_once();
+            self.tick_once()?;
         }
 
         let event = RunEvent {
@@ -141,7 +147,7 @@ impl Simulator {
             Intervention::SterilizeSample => {
                 let next = self.state.get(NodeId::FungusLoad) - 50.0;
                 self.state.set(NodeId::FungusLoad, next);
-                self.contamination = clamp_0_100(self.contamination + 15.0);
+                self.contamination = math::clamp01(self.contamination + 15.0);
             }
             Intervention::ScanPopulation => {
                 measurements.extend(scan_population(&self.state, &mut self.rng, self.tick));
@@ -154,7 +160,7 @@ impl Simulator {
         Ok(())
     }
 
-    fn tick_once(&mut self) {
+    fn tick_once(&mut self) -> Result<(), SimError> {
         let mut next = self.state;
         let update_order = [
             NodeId::Enzyme,
@@ -166,13 +172,10 @@ impl Simulator {
         ];
 
         for node in update_order {
-            let current = next.get(node);
+            let current = self.require_state_value(node, next.get(node))?;
             let bias = self.recipe.biases[node.as_index()];
-            let influence = self
-                .graph
-                .incoming(node)
-                .map(|edge| edge.weight * (next.get(edge.from) / 100.0))
-                .sum::<f32>();
+            let incoming = self.incoming_pairs(node, &next)?;
+            let influence = math::compute_influence(&incoming, &next.values);
             let sigma = self.recipe.noise_sigma[node.as_index()];
             let noise = if self.noise_mode == NoiseMode::Disabled {
                 0.0
@@ -181,8 +184,9 @@ impl Simulator {
             } else {
                 0.0
             };
-            let updated = current + bias + influence * INFLUENCE_SCALE + noise;
-            next.set(node, updated);
+            let updated = math::apply_update(current, bias, influence, INFLUENCE_SCALE, noise);
+            let validated = self.require_state_value(node, updated)?;
+            next.set(node, validated);
         }
 
         // Keep UV constrained to the discrete intervention-controlled levels.
@@ -191,6 +195,45 @@ impl Simulator {
 
         self.state = next;
         self.tick = self.tick.saturating_add(1);
+        Ok(())
+    }
+
+    fn incoming_pairs(
+        &self,
+        target: NodeId,
+        state: &WorldState,
+    ) -> Result<Vec<(usize, f32)>, SimError> {
+        let mut pairs = Vec::new();
+        let values_len = state.values.len();
+        let to_idx = target.as_index();
+
+        if to_idx >= values_len {
+            return Err(SimError::InvalidEdgeIndex { from: to_idx, to: to_idx });
+        }
+
+        for edge in self.graph.incoming(target) {
+            let from_idx = edge.from.as_index();
+            if from_idx >= values_len {
+                return Err(SimError::InvalidEdgeIndex {
+                    from: from_idx,
+                    to: to_idx,
+                });
+            }
+            pairs.push((from_idx, edge.weight));
+        }
+
+        Ok(pairs)
+    }
+
+    fn require_state_value(&self, node: NodeId, value: f32) -> Result<f32, SimError> {
+        if math::is_valid_state_value(value) {
+            Ok(value)
+        } else {
+            Err(SimError::InvalidStateValue {
+                node: node.stable_name().to_string(),
+                value,
+            })
+        }
     }
 }
 
