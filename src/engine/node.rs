@@ -19,7 +19,12 @@ pub struct NodeSpec {
 }
 
 impl NodeSpec {
-    pub const fn new(id: NodeId, stable_name: &'static str, kind: NodeKind, observable: bool) -> Self {
+    pub const fn new(
+        id: NodeId,
+        stable_name: &'static str,
+        kind: NodeKind,
+        observable: bool,
+    ) -> Self {
         Self {
             id,
             stable_name,
@@ -34,7 +39,12 @@ pub const fn node_catalog() -> [NodeSpec; NODE_COUNT] {
         NodeSpec::new(NodeId::UvLevel, "uv_level", NodeKind::Env, true),
         NodeSpec::new(NodeId::PlantPop, "plant_pop", NodeKind::Organism, true),
         NodeSpec::new(NodeId::FungusLoad, "fungus_load", NodeKind::Organism, true),
-        NodeSpec::new(NodeId::BacteriaPop, "bacteria_pop", NodeKind::Organism, true),
+        NodeSpec::new(
+            NodeId::BacteriaPop,
+            "bacteria_pop",
+            NodeKind::Organism,
+            true,
+        ),
         NodeSpec::new(NodeId::Toxin, "toxin", NodeKind::Chemical, true),
         NodeSpec::new(NodeId::Nutrient, "nutrient", NodeKind::Chemical, true),
         NodeSpec::new(NodeId::Enzyme, "enzyme", NodeKind::Latent, false),

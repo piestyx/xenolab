@@ -3,12 +3,14 @@ use rand_chacha::ChaCha8Rng;
 
 use crate::engine::ids::{NodeId, ObjectiveId, NODE_COUNT};
 use crate::engine::node::{EdgeSpec, NodeKind};
-use crate::engine::world::{RecipeMetadata, ThresholdConfig, UvToxinThresholdMode, WorldRecipe, WorldState};
+use crate::engine::world::{
+    RecipeMetadata, ThresholdConfig, UvToxinThresholdMode, WorldRecipe, WorldState,
+};
 use crate::worldgen::spec::{
-    Archetype, EdgeTier, MAX_BIAS, MenuPolarity, MIN_BIAS, SIGMA_CHEMICAL, SIGMA_ENV,
-    SIGMA_LATENT, SIGMA_ORGANISM, SPICE_MAX_MAG, SPICE_MIN_MAG, STABILITY_CAP,
-    SECONDARY_MAX_MAG, SECONDARY_MIN_MAG, PRIMARY_MAX_MAG, PRIMARY_MIN_MAG,
-    archetype_from_seed, incoming_degree_cap,
+    archetype_from_seed, incoming_degree_cap, Archetype, EdgeTier, MenuPolarity, MAX_BIAS,
+    MIN_BIAS, PRIMARY_MAX_MAG, PRIMARY_MIN_MAG, SECONDARY_MAX_MAG, SECONDARY_MIN_MAG,
+    SIGMA_CHEMICAL, SIGMA_ENV, SIGMA_LATENT, SIGMA_ORGANISM, SPICE_MAX_MAG, SPICE_MIN_MAG,
+    STABILITY_CAP,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -339,14 +341,12 @@ fn pick_optional_edge(archetype: Archetype, rng: &mut ChaCha8Rng) -> Option<Plan
     }
 
     let choices: &[PlannedEdge] = match archetype {
-        Archetype::UvSensitive => &[
-            PlannedEdge {
-                from: NodeId::UvLevel,
-                to: NodeId::Toxin,
-                polarity: MenuPolarity::Negative,
-                tier: EdgeTier::Spice,
-            },
-        ],
+        Archetype::UvSensitive => &[PlannedEdge {
+            from: NodeId::UvLevel,
+            to: NodeId::Toxin,
+            polarity: MenuPolarity::Negative,
+            tier: EdgeTier::Spice,
+        }],
         Archetype::NutrientLimited => &[
             PlannedEdge {
                 from: NodeId::BacteriaPop,
@@ -375,14 +375,12 @@ fn pick_optional_edge(archetype: Archetype, rng: &mut ChaCha8Rng) -> Option<Plan
                 tier: EdgeTier::Spice,
             },
         ],
-        Archetype::SymbiosisFragile => &[
-            PlannedEdge {
-                from: NodeId::Nutrient,
-                to: NodeId::FungusLoad,
-                polarity: MenuPolarity::Positive,
-                tier: EdgeTier::Spice,
-            },
-        ],
+        Archetype::SymbiosisFragile => &[PlannedEdge {
+            from: NodeId::Nutrient,
+            to: NodeId::FungusLoad,
+            polarity: MenuPolarity::Positive,
+            tier: EdgeTier::Spice,
+        }],
         Archetype::DetoxEcosystem => &[
             PlannedEdge {
                 from: NodeId::UvLevel,

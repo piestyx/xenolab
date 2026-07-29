@@ -15,7 +15,7 @@ fn baseline_has_pressure() {
 
     for seed in 1_u64..=30 {
         let recipe = worldgen::generate_playable(seed);
-        let mut sim = Simulator::new_no_noise(recipe);
+        let mut sim = Simulator::new_no_noise_for_analysis(recipe);
         let mut saw_pressure = false;
 
         for _ in 0..60 {
@@ -47,7 +47,7 @@ fn plant_not_saturated_forever() {
 
     for seed in 1_u64..=30 {
         let recipe = worldgen::generate_playable(seed);
-        let mut sim = Simulator::new_no_noise(recipe);
+        let mut sim = Simulator::new_no_noise_for_analysis(recipe);
 
         let mut current_streak = 0_u32;
         let mut longest_streak = 0_u32;
@@ -82,7 +82,7 @@ fn toxin_can_hurt_plant() {
 
     for seed in 10_u64..=20 {
         let recipe = worldgen::generate_playable(seed);
-        let mut sim = Simulator::new_no_noise(recipe);
+        let mut sim = Simulator::new_no_noise_for_analysis(recipe);
 
         run_ticks(&mut sim, 3);
         let plant_before = sim.state().get(NodeId::PlantPop);

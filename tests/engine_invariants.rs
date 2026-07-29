@@ -25,7 +25,7 @@ fn clamp_and_finite_invariant() {
 
     for seed in 1_u64..=20 {
         let recipe = worldgen::generate_playable(seed);
-        let mut sim = Simulator::new_no_noise(recipe);
+        let mut sim = Simulator::new_no_noise_for_analysis(recipe);
 
         for step in 0..20 {
             let action = action_cycle[step % action_cycle.len()].clone();
@@ -39,7 +39,7 @@ fn clamp_and_finite_invariant() {
 #[test]
 fn uv_set_is_exact() {
     let recipe = worldgen::generate_playable(1);
-    let mut sim = Simulator::new_no_noise(recipe);
+    let mut sim = Simulator::new_no_noise_for_analysis(recipe);
 
     sim.apply(Intervention::SetUvLow).unwrap();
     assert_eq!(sim.state().get(NodeId::UvLevel), 0.0);
@@ -54,7 +54,7 @@ fn uv_set_is_exact() {
 #[test]
 fn neutralize_toxin_never_increases() {
     let recipe = worldgen::generate_playable(2);
-    let mut sim = Simulator::new_no_noise(recipe);
+    let mut sim = Simulator::new_no_noise_for_analysis(recipe);
 
     for i in 0..5 {
         sim.apply(Intervention::AddToxin(20.0)).unwrap();
@@ -72,8 +72,9 @@ fn neutralize_toxin_never_increases() {
 #[test]
 fn remove_fungus_behavior_matches_topology() {
     let recipe = worldgen::generate_playable(3);
-    let can_regrow = recipe.metadata.has_twist_toxin_fungus || recipe.metadata.has_twist_nutrient_fungus;
-    let mut sim = Simulator::new_no_noise(recipe.clone());
+    let can_regrow =
+        recipe.metadata.has_twist_toxin_fungus || recipe.metadata.has_twist_nutrient_fungus;
+    let mut sim = Simulator::new_no_noise_for_analysis(recipe.clone());
 
     sim.apply(Intervention::RemoveFungus).unwrap();
 
@@ -111,14 +112,14 @@ fn mandatory_edge_sign_sanity() {
     for seed in 10_u64..=20 {
         let recipe = worldgen::generate_playable(seed);
 
-        let mut toxin_branch = Simulator::new_no_noise(recipe.clone());
+        let mut toxin_branch = Simulator::new_no_noise_for_analysis(recipe.clone());
         run_ticks(&mut toxin_branch, 3);
         let bacteria_before = toxin_branch.state().get(NodeId::BacteriaPop);
         toxin_branch.apply(Intervention::AddToxin(20.0)).unwrap();
         run_ticks(&mut toxin_branch, 3);
         let bacteria_delta = toxin_branch.state().get(NodeId::BacteriaPop) - bacteria_before;
 
-        let mut uv_branch = Simulator::new_no_noise(recipe);
+        let mut uv_branch = Simulator::new_no_noise_for_analysis(recipe);
         run_ticks(&mut uv_branch, 3);
         let plant_before = uv_branch.state().get(NodeId::PlantPop);
         uv_branch.apply(Intervention::SetUvHigh).unwrap();

@@ -53,12 +53,7 @@ pub fn maintenance_drain(m: f32) -> f32 {
 
 /// Apply organism-specific dynamics after influence and before clamp:
 /// next = current + delta - maintenance - capacity_drag
-pub fn apply_organism_dynamics(
-    current: f32,
-    delta: f32,
-    maintenance: f32,
-    capacity_k: f32,
-) -> f32 {
+pub fn apply_organism_dynamics(current: f32, delta: f32, maintenance: f32, capacity_k: f32) -> f32 {
     current - maintenance_drain(maintenance) - capacity_drag(current, capacity_k) + delta
 }
 

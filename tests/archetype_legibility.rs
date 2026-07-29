@@ -5,7 +5,7 @@ use xenolab::engine::interventions::Intervention;
 use xenolab::engine::sim::Simulator;
 use xenolab::engine::world::UvToxinThresholdMode;
 use xenolab::worldgen;
-use xenolab::worldgen::spec::{Archetype, INFLUENCE_SCALE, incoming_degree_cap};
+use xenolab::worldgen::spec::{incoming_degree_cap, Archetype, INFLUENCE_SCALE};
 
 fn run_ticks(sim: &mut Simulator, count: usize) {
     for _ in 0..count {
@@ -15,7 +15,7 @@ fn run_ticks(sim: &mut Simulator, count: usize) {
 
 fn plant_delta(seed: u64, actions: &[Intervention], post_ticks: usize) -> f32 {
     let recipe = worldgen::generate_playable(seed);
-    let mut sim = Simulator::new_no_noise(recipe);
+    let mut sim = Simulator::new_no_noise_for_analysis(recipe);
     run_ticks(&mut sim, 3);
     let before = sim.state().get(NodeId::PlantPop);
     for action in actions {
@@ -89,12 +89,16 @@ fn dominance_ratio_for_plant() {
 
     for seed in 1_u64..=50 {
         let recipe = worldgen::generate_playable(seed);
-        let mut sim = Simulator::new_no_noise(recipe.clone());
+        let mut sim = Simulator::new_no_noise_for_analysis(recipe.clone());
 
         let mut contributions = [0.0_f32; xenolab::engine::ids::NODE_COUNT];
         for _ in 0..5 {
             let state = *sim.state();
-            for edge in recipe.edges.iter().filter(|edge| edge.to == NodeId::PlantPop) {
+            for edge in recipe
+                .edges
+                .iter()
+                .filter(|edge| edge.to == NodeId::PlantPop)
+            {
                 let from_idx = edge.from.as_index();
                 let parent_norm = state.values[from_idx] / 100.0;
                 let c = (edge.weight * parent_norm * INFLUENCE_SCALE).abs();
@@ -196,7 +200,7 @@ fn archetype_signature_dominant_constraint() {
 
         for seed in seeds {
             let recipe = worldgen::generate_playable(*seed);
-            let mut sim = Simulator::new_no_noise(recipe);
+            let mut sim = Simulator::new_no_noise_for_analysis(recipe);
             run_ticks(&mut sim, 3);
             let plant_before = sim.state().get(NodeId::PlantPop);
             let bacteria_before = sim.state().get(NodeId::BacteriaPop);
@@ -239,12 +243,12 @@ fn threshold_behavior_if_enabled() {
         }
         seen_threshold += 1;
 
-        let mut baseline = Simulator::new_no_noise(recipe.clone());
+        let mut baseline = Simulator::new_no_noise_for_analysis(recipe.clone());
         baseline.apply(Intervention::AdvanceTime).unwrap();
         run_ticks(&mut baseline, 3);
         let toxin_baseline = baseline.state().get(NodeId::Toxin);
 
-        let mut high_uv = Simulator::new_no_noise(recipe);
+        let mut high_uv = Simulator::new_no_noise_for_analysis(recipe);
         high_uv.apply(Intervention::SetUvHigh).unwrap();
         run_ticks(&mut high_uv, 3);
         let toxin_high = high_uv.state().get(NodeId::Toxin);
@@ -268,7 +272,10 @@ fn threshold_behavior_if_enabled() {
         }
     }
 
-    assert!(seen_threshold > 0, "no threshold-enabled worlds found in seeds 1..100");
+    assert!(
+        seen_threshold > 0,
+        "no threshold-enabled worlds found in seeds 1..100"
+    );
     assert!(
         failures.is_empty(),
         "threshold behavior failures: {:?}",

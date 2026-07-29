@@ -26,10 +26,9 @@ fn is_playable(recipe: &WorldRecipe) -> bool {
 }
 
 fn check_structure(recipe: &WorldRecipe) -> bool {
-    let has_plant_growth_path = recipe
-        .edges
-        .iter()
-        .any(|edge| edge.from == NodeId::Enzyme && edge.to == NodeId::PlantPop && edge.weight > 0.0);
+    let has_plant_growth_path = recipe.edges.iter().any(|edge| {
+        edge.from == NodeId::Enzyme && edge.to == NodeId::PlantPop && edge.weight > 0.0
+    });
     let has_plant_hazard_path = recipe
         .edges
         .iter()
@@ -43,7 +42,7 @@ fn check_structure(recipe: &WorldRecipe) -> bool {
 }
 
 fn check_stability(recipe: &WorldRecipe) -> bool {
-    let mut sim = Simulator::new(recipe.clone());
+    let mut sim = Simulator::new_for_analysis(recipe.clone());
     let start = *sim.state();
     if run_ticks(&mut sim, 30).is_err() {
         return false;
@@ -55,13 +54,14 @@ fn check_stability(recipe: &WorldRecipe) -> bool {
     }
     let plant_delta = (sim.state().get(NodeId::PlantPop) - start.get(NodeId::PlantPop)).abs();
     let toxin_delta = (sim.state().get(NodeId::Toxin) - start.get(NodeId::Toxin)).abs();
-    let bacteria_delta = (sim.state().get(NodeId::BacteriaPop) - start.get(NodeId::BacteriaPop)).abs();
+    let bacteria_delta =
+        (sim.state().get(NodeId::BacteriaPop) - start.get(NodeId::BacteriaPop)).abs();
     (plant_delta >= 5.0 || toxin_delta >= 5.0 || bacteria_delta >= 5.0)
         && check_no_noise_saturation(recipe)
 }
 
 fn check_toxin_signature(recipe: &WorldRecipe) -> bool {
-    let mut sim = Simulator::new(recipe.clone());
+    let mut sim = Simulator::new_for_analysis(recipe.clone());
     if run_ticks(&mut sim, 3).is_err() {
         return false;
     }
@@ -84,7 +84,7 @@ fn run_ticks(sim: &mut Simulator, count: usize) -> Result<(), ()> {
 }
 
 fn check_no_noise_saturation(recipe: &WorldRecipe) -> bool {
-    let mut sim = Simulator::new_no_noise(recipe.clone());
+    let mut sim = Simulator::new_no_noise_for_analysis(recipe.clone());
     let mut current_streak = 0_u32;
     let mut max_streak = 0_u32;
 

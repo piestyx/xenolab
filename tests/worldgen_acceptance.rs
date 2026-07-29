@@ -14,7 +14,7 @@ fn run_ticks(sim: &mut Simulator, count: usize) {
 
 fn branch_plant_delta(seed: u64, interventions: &[Intervention]) -> f32 {
     let recipe = worldgen::generate_playable(seed);
-    let mut sim = Simulator::new_no_noise(recipe);
+    let mut sim = Simulator::new_no_noise_for_analysis(recipe);
     run_ticks(&mut sim, 3);
     let before = sim.state().get(NodeId::PlantPop);
     for action in interventions {
@@ -41,7 +41,7 @@ fn determinism_world_recipe() {
 fn stability_no_intervention() {
     for seed in 1_u64..=20 {
         let recipe = worldgen::generate_playable(seed);
-        let mut sim = Simulator::new(recipe);
+        let mut sim = Simulator::new_for_analysis(recipe);
         let start = *sim.state();
         run_ticks(&mut sim, 30);
 
@@ -54,7 +54,8 @@ fn stability_no_intervention() {
 
         let plant_delta = (sim.state().get(NodeId::PlantPop) - start.get(NodeId::PlantPop)).abs();
         let toxin_delta = (sim.state().get(NodeId::Toxin) - start.get(NodeId::Toxin)).abs();
-        let bacteria_delta = (sim.state().get(NodeId::BacteriaPop) - start.get(NodeId::BacteriaPop)).abs();
+        let bacteria_delta =
+            (sim.state().get(NodeId::BacteriaPop) - start.get(NodeId::BacteriaPop)).abs();
         assert!(
             plant_delta >= 5.0 || toxin_delta >= 5.0 || bacteria_delta >= 5.0,
             "dead-flat behavior for seed {seed}: plant={plant_delta}, toxin={toxin_delta}, bacteria={bacteria_delta}"
@@ -70,13 +71,16 @@ fn signature_uv_affects_plant() {
     for seed in 1_u64..=20 {
         let delta_a = branch_plant_delta(seed, &[Intervention::SetUvHigh]);
         let delta_b = branch_plant_delta(seed, &[Intervention::SetUvLow]);
-        let delta_c = branch_plant_delta(seed, &[Intervention::RemoveFungus, Intervention::SetUvHigh]);
+        let delta_c =
+            branch_plant_delta(seed, &[Intervention::RemoveFungus, Intervention::SetUvHigh]);
 
         let uv_delta = (delta_a - delta_b).abs();
         if uv_delta >= 0.5 {
             uv_pass_count += 1;
         } else {
-            uv_failures.push(format!("seed {seed}: A={delta_a:.3}, B={delta_b:.3}, diff={uv_delta:.3}"));
+            uv_failures.push(format!(
+                "seed {seed}: A={delta_a:.3}, B={delta_b:.3}, diff={uv_delta:.3}"
+            ));
         }
         assert!(
             delta_c.abs() <= delta_a.abs() + 4.0,
@@ -94,7 +98,7 @@ fn signature_uv_affects_plant() {
 fn signature_nutrient_direct_matches_metadata() {
     for seed in 1_u64..=20 {
         let recipe = worldgen::generate_playable(seed);
-        let mut nutrient_branch = Simulator::new_no_noise(recipe.clone());
+        let mut nutrient_branch = Simulator::new_no_noise_for_analysis(recipe.clone());
         run_ticks(&mut nutrient_branch, 3);
         let before_nutrient = nutrient_branch.state().get(NodeId::PlantPop);
         nutrient_branch
@@ -103,7 +107,7 @@ fn signature_nutrient_direct_matches_metadata() {
         run_ticks(&mut nutrient_branch, 3);
         let delta_nutrient = nutrient_branch.state().get(NodeId::PlantPop) - before_nutrient;
 
-        let mut control_branch = Simulator::new_no_noise(recipe.clone());
+        let mut control_branch = Simulator::new_no_noise_for_analysis(recipe.clone());
         run_ticks(&mut control_branch, 3);
         let before_control = control_branch.state().get(NodeId::PlantPop);
         control_branch.apply(Intervention::AdvanceTime).unwrap();
@@ -130,7 +134,7 @@ fn signature_nutrient_direct_matches_metadata() {
 fn signature_toxin_harms_bacteria() {
     for seed in 1_u64..=20 {
         let recipe = worldgen::generate_playable(seed);
-        let mut sim = Simulator::new_no_noise(recipe);
+        let mut sim = Simulator::new_no_noise_for_analysis(recipe);
 
         run_ticks(&mut sim, 3);
         let before = sim.state().get(NodeId::BacteriaPop);
@@ -138,7 +142,10 @@ fn signature_toxin_harms_bacteria() {
         run_ticks(&mut sim, 3);
         let delta = sim.state().get(NodeId::BacteriaPop) - before;
 
-        assert!(delta <= -3.0, "toxin did not reduce bacteria for seed {seed}, delta={delta}");
+        assert!(
+            delta <= -3.0,
+            "toxin did not reduce bacteria for seed {seed}, delta={delta}"
+        );
         assert_ne!(delta, 0.0);
     }
 }

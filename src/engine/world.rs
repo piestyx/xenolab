@@ -29,7 +29,7 @@ impl Default for ThresholdConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
 pub struct RecipeMetadata {
     pub has_nutrient_direct: bool,
     pub has_uv_toxin: bool,
@@ -39,21 +39,6 @@ pub struct RecipeMetadata {
     pub has_bacteria_nutrient_recycle: bool,
     pub has_twist_toxin_fungus: bool,
     pub has_twist_nutrient_fungus: bool,
-}
-
-impl Default for RecipeMetadata {
-    fn default() -> Self {
-        Self {
-            has_nutrient_direct: false,
-            has_uv_toxin: false,
-            has_bacteria_toxin_decay: false,
-            has_fungus_toxin_prod: false,
-            has_plant_nutrient_deplete: false,
-            has_bacteria_nutrient_recycle: false,
-            has_twist_toxin_fungus: false,
-            has_twist_nutrient_fungus: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]

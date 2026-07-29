@@ -9,7 +9,11 @@ use crate::ui::app::App;
 pub fn render_lab(f: &mut Frame, app: &App, area: Rect) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(8), Constraint::Length(8)])
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(8),
+            Constraint::Length(8),
+        ])
         .split(area);
 
     render_top_row(f, app, rows[0]);
@@ -44,20 +48,45 @@ fn render_main_columns(f: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     let status_items = vec![
-        ListItem::new(format!("Objective: {}", app.objective.label()))
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        ListItem::new(app.objective_summary_short()),
+        ListItem::new(format!("Objective: {}", app.objective.label())).style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        ListItem::new(format!(
+            "{} ({})",
+            app.objective_summary_short(),
+            app.objective_progress_text()
+        )),
+        ListItem::new(format!(
+            "Actions remaining: {} / {}",
+            app.actions_remaining(),
+            app.action_limit()
+        )),
         ListItem::new(""),
-        ListItem::new(format!("Plant: {:.2}", app.simulator.state().get(NodeId::PlantPop))),
-        ListItem::new(format!("Fungus: {:.2}", app.simulator.state().get(NodeId::FungusLoad))),
+        ListItem::new(format!(
+            "Plant: {:.2}",
+            app.simulator.state().get(NodeId::PlantPop)
+        )),
+        ListItem::new(format!(
+            "Fungus: {:.2}",
+            app.simulator.state().get(NodeId::FungusLoad)
+        )),
         ListItem::new(format!(
             "Bacteria: {:.2}",
             app.simulator.state().get(NodeId::BacteriaPop)
         )),
-        ListItem::new(format!("Toxin: {:.2}", app.simulator.state().get(NodeId::Toxin))),
-        ListItem::new(format!("Nutrient: {:.2}", app.simulator.state().get(NodeId::Nutrient))),
+        ListItem::new(format!(
+            "Toxin: {:.2}",
+            app.simulator.state().get(NodeId::Toxin)
+        )),
+        ListItem::new(format!(
+            "Nutrient: {:.2}",
+            app.simulator.state().get(NodeId::Nutrient)
+        )),
     ];
-    let status = List::new(status_items).block(Block::default().title("Status").borders(Borders::ALL));
+    let status =
+        List::new(status_items).block(Block::default().title("Status").borders(Borders::ALL));
     f.render_widget(status, cols[0]);
 
     let metrics = [
@@ -81,8 +110,11 @@ fn render_main_columns(f: &mut Frame, app: &App, area: Rect) {
             ))
         })
         .collect();
-    let state_block = List::new(metric_items)
-        .block(Block::default().title("World State (value + delta)").borders(Borders::ALL));
+    let state_block = List::new(metric_items).block(
+        Block::default()
+            .title("World State (value + delta)")
+            .borders(Borders::ALL),
+    );
     f.render_widget(state_block, cols[1]);
 
     let items: Vec<ListItem> = app
@@ -92,7 +124,11 @@ fn render_main_columns(f: &mut Frame, app: &App, area: Rect) {
         .collect();
     let list = List::new(items)
         .block(Block::default().title("Actions").borders(Borders::ALL))
-        .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
         .highlight_symbol("> ");
     let mut list_state = ListState::default();
     list_state.select(Some(app.menu_index));
@@ -111,7 +147,14 @@ fn render_last_result(f: &mut Frame, app: &App, area: Rect) {
         let joined = app
             .last_measurements
             .iter()
-            .map(|m| format!("{} {:.1}->{:.1}", m.node.stable_name(), m.true_value, m.measured_value))
+            .map(|m| {
+                format!(
+                    "{} {:.1}->{:.1}",
+                    m.node.stable_name(),
+                    m.true_value,
+                    m.measured_value
+                )
+            })
             .collect::<Vec<String>>()
             .join(", ");
         format!("Measurement: {joined}")

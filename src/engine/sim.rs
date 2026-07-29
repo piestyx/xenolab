@@ -6,7 +6,8 @@ use crate::engine::graph::Graph;
 use crate::engine::ids::NodeId;
 use crate::engine::interventions::Intervention;
 use crate::engine::math;
-use crate::engine::measurement::{scan_chemicals, scan_population, sample_standard_normal};
+use crate::engine::measurement::{sample_standard_normal, scan_chemicals, scan_population};
+use crate::engine::run::{RunDebrief, RunState, RunStatus, ACTION_LIMIT};
 use crate::engine::runlog::{RunEvent, RunLog};
 use crate::engine::world::{UvToxinThresholdMode, WorldRecipe, WorldState};
 
@@ -24,6 +25,8 @@ pub enum NoiseMode {
 
 #[derive(Debug, Error)]
 pub enum SimError {
+    #[error("run has already resolved")]
+    RunResolved,
     #[error("delta value for {0} must be finite and >= 0")]
     InvalidDelta(&'static str),
     #[error("invalid edge index from={from} to={to}")]
@@ -41,10 +44,36 @@ pub struct Simulator {
     noise_mode: NoiseMode,
     rng: ChaCha8Rng,
     runlog: RunLog,
+    run: RunState,
+    debrief: Option<RunDebrief>,
+    lifecycle_enabled: bool,
 }
 
 impl Simulator {
     pub fn new(recipe: WorldRecipe) -> Self {
+        Self::with_config(recipe, ACTION_LIMIT, NoiseMode::Normal, true)
+    }
+
+    pub fn new_no_noise(recipe: WorldRecipe) -> Self {
+        Self::with_config(recipe, ACTION_LIMIT, NoiseMode::Disabled, true)
+    }
+
+    pub fn new_for_analysis(recipe: WorldRecipe) -> Self {
+        Self::with_config(recipe, u32::MAX, NoiseMode::Normal, false)
+    }
+
+    pub fn new_no_noise_for_analysis(recipe: WorldRecipe) -> Self {
+        Self::with_config(recipe, u32::MAX, NoiseMode::Disabled, false)
+    }
+
+    fn with_config(
+        recipe: WorldRecipe,
+        action_limit: u32,
+        noise_mode: NoiseMode,
+        lifecycle_enabled: bool,
+    ) -> Self {
+        let seed = recipe.seed;
+        let objective = recipe.objective;
         let mut hasher = blake3::Hasher::new();
         hasher.update(&recipe.seed.to_le_bytes());
         hasher.update(&recipe.attempt.to_le_bytes());
@@ -60,22 +89,17 @@ impl Simulator {
             recipe,
             tick: 0,
             contamination: 0.0,
-            noise_mode: NoiseMode::Normal,
+            noise_mode,
             rng: ChaCha8Rng::seed_from_u64(rng_seed),
             runlog: RunLog::default(),
+            run: RunState::with_action_limit(seed, objective, action_limit),
+            debrief: None,
+            lifecycle_enabled,
         }
     }
 
-    pub fn new_no_noise(recipe: WorldRecipe) -> Self {
-        let mut sim = Self::new(recipe);
-        sim.noise_mode = NoiseMode::Disabled;
-        sim
-    }
-
     pub fn with_noise_mode(recipe: WorldRecipe, noise_mode: NoiseMode) -> Self {
-        let mut sim = Self::new(recipe);
-        sim.noise_mode = noise_mode;
-        sim
+        Self::with_config(recipe, ACTION_LIMIT, noise_mode, true)
     }
 
     pub fn state(&self) -> &WorldState {
@@ -94,10 +118,22 @@ impl Simulator {
         &self.runlog.events
     }
 
+    pub fn run_state(&self) -> &RunState {
+        &self.run
+    }
+
+    pub fn debrief(&self) -> Option<&RunDebrief> {
+        self.debrief.as_ref()
+    }
+
     pub fn apply(
         &mut self,
         action: crate::engine::interventions::Intervention,
     ) -> Result<crate::engine::runlog::RunEvent, crate::engine::sim::SimError> {
+        if self.lifecycle_enabled && self.run.status != RunStatus::Active {
+            return Err(SimError::RunResolved);
+        }
+
         let mut measurements = Vec::new();
         self.apply_intervention(&action, &mut measurements)?;
         if action.ticks_time() {
@@ -112,7 +148,56 @@ impl Simulator {
             contamination: self.contamination,
         };
         self.runlog.push(event.clone());
+        if self.lifecycle_enabled {
+            self.run.actions_used += 1;
+            self.update_objective_progress();
+            if self.run.objective_progress.is_complete() {
+                self.run.status = RunStatus::Won;
+            } else if self.run.actions_used >= self.run.action_limit {
+                self.run.status =
+                    RunStatus::Failed(crate::engine::run::RunFailure::ActionBudgetExhausted);
+            }
+            if self.run.status != RunStatus::Active {
+                self.debrief = Some(self.build_debrief());
+            }
+        }
         Ok(event)
+    }
+
+    fn update_objective_progress(&mut self) {
+        let qualifies = match self.run.objective {
+            crate::engine::ids::ObjectiveId::StabilizePlant => {
+                self.state.get(NodeId::PlantPop) >= 60.0
+            }
+            crate::engine::ids::ObjectiveId::Detox => self.state.get(NodeId::Toxin) <= 15.0,
+            crate::engine::ids::ObjectiveId::PreventCollapse => {
+                self.state.get(NodeId::PlantPop) >= 25.0
+                    && self.state.get(NodeId::BacteriaPop) >= 25.0
+            }
+        };
+
+        if qualifies {
+            self.run.objective_progress.current = self
+                .run
+                .objective_progress
+                .current
+                .saturating_add(1)
+                .min(self.run.objective_progress.required);
+        } else {
+            self.run.objective_progress.current = 0;
+        }
+    }
+
+    fn build_debrief(&self) -> RunDebrief {
+        RunDebrief::from_terminal_state(
+            &self.run,
+            &self.state,
+            self.tick,
+            self.contamination,
+            crate::engine::runlog::hash_events(&self.runlog.events)
+                .to_hex()
+                .to_string(),
+        )
     }
 
     fn apply_intervention(
@@ -231,7 +316,10 @@ impl Simulator {
         let to_idx = target.as_index();
 
         if to_idx >= values_len {
-            return Err(SimError::InvalidEdgeIndex { from: to_idx, to: to_idx });
+            return Err(SimError::InvalidEdgeIndex {
+                from: to_idx,
+                to: to_idx,
+            });
         }
 
         for edge in self.graph.incoming(target) {
@@ -274,7 +362,10 @@ impl Simulator {
 }
 
 fn is_organism(node: NodeId) -> bool {
-    matches!(node, NodeId::PlantPop | NodeId::FungusLoad | NodeId::BacteriaPop)
+    matches!(
+        node,
+        NodeId::PlantPop | NodeId::FungusLoad | NodeId::BacteriaPop
+    )
 }
 
 fn is_chemical(node: NodeId) -> bool {

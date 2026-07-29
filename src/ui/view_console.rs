@@ -17,8 +17,16 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         .map(|action| ListItem::new(action.label()))
         .collect();
     let list = List::new(items)
-        .block(Block::default().title("Command Console").borders(Borders::ALL))
-        .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .block(
+            Block::default()
+                .title("Command Console")
+                .borders(Borders::ALL),
+        )
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
         .highlight_symbol("> ");
     let mut list_state = ListState::default();
     list_state.select(Some(app.menu_index));
@@ -29,11 +37,21 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         app.last_measurements
             .iter()
-            .map(|m| format!("{}: {:.2} -> {:.2}", m.node.stable_name(), m.true_value, m.measured_value))
+            .map(|m| {
+                format!(
+                    "{}: {:.2} -> {:.2}",
+                    m.node.stable_name(),
+                    m.true_value,
+                    m.measured_value
+                )
+            })
             .collect::<Vec<String>>()
             .join("\n")
     };
-    let measurement = Paragraph::new(measurement_text)
-        .block(Block::default().title("Last Measurement").borders(Borders::ALL));
+    let measurement = Paragraph::new(measurement_text).block(
+        Block::default()
+            .title("Last Measurement")
+            .borders(Borders::ALL),
+    );
     frame.render_widget(measurement, chunks[1]);
 }

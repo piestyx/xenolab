@@ -29,12 +29,20 @@ pub struct MeasurementRecord {
     pub measured_value: f32,
 }
 
-pub fn scan_population(state: &WorldState, rng: &mut ChaCha8Rng, tick_index: u32) -> Vec<MeasurementRecord> {
+pub fn scan_population(
+    state: &WorldState,
+    rng: &mut ChaCha8Rng,
+    tick_index: u32,
+) -> Vec<MeasurementRecord> {
     let nodes = [NodeId::PlantPop, NodeId::FungusLoad, NodeId::BacteriaPop];
     measure_nodes(state, rng, tick_index, Instrument::BioScanner, &nodes)
 }
 
-pub fn scan_chemicals(state: &WorldState, rng: &mut ChaCha8Rng, tick_index: u32) -> Vec<MeasurementRecord> {
+pub fn scan_chemicals(
+    state: &WorldState,
+    rng: &mut ChaCha8Rng,
+    tick_index: u32,
+) -> Vec<MeasurementRecord> {
     let nodes = [NodeId::Toxin, NodeId::Nutrient];
     measure_nodes(state, rng, tick_index, Instrument::Spectrometer, &nodes)
 }
