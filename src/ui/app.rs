@@ -8,16 +8,18 @@ use crate::engine::contamination::ContaminationLevel;
 use crate::engine::ids::{NodeId, ObjectiveId};
 use crate::engine::interventions::Intervention;
 use crate::engine::measurement::MeasurementRecord;
+use crate::engine::notebook::{HypothesisDirection, HypothesisId, ObservableVariable};
 use crate::engine::run::{RunStatus, ACTION_LIMIT};
 use crate::engine::sim::{SimError, Simulator};
 use crate::engine::world::WorldState;
-use crate::ui::{view_debrief, view_journal, view_lab, view_log};
+use crate::ui::{view_debrief, view_journal, view_lab, view_log, view_notebook};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveView {
     Lab,
     Journal,
     Log,
+    Notebook,
 }
 
 impl ActiveView {
@@ -26,8 +28,25 @@ impl ActiveView {
             Self::Lab => 0,
             Self::Journal => 1,
             Self::Log => 2,
+            Self::Notebook => 3,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotebookField {
+    Cause,
+    Direction,
+    Effect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NotebookEditor {
+    pub id: Option<HypothesisId>,
+    pub cause: usize,
+    pub direction: HypothesisDirection,
+    pub effect: usize,
+    pub field: NotebookField,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,6 +130,9 @@ pub struct App {
     pub last_state_snapshot: Option<WorldState>,
     pub last_event_summary: Option<String>,
     pub pending_seed_input: Option<String>,
+    pub notebook_selected: usize,
+    pub notebook_editor: Option<NotebookEditor>,
+    pub notebook_delete_confirmation: Option<HypothesisId>,
 }
 
 impl App {
@@ -131,6 +153,9 @@ impl App {
             last_state_snapshot: None,
             last_event_summary: None,
             pending_seed_input: None,
+            notebook_selected: 0,
+            notebook_editor: None,
+            notebook_delete_confirmation: None,
         }
     }
 
@@ -140,11 +165,11 @@ impl App {
             .constraints([Constraint::Length(3), Constraint::Min(0)])
             .split(frame.size());
 
-        let titles = ["1 Lab", "2 Journal", "3 Log"];
+        let titles = ["1 Lab", "2 Journal", "3 Log", "4 Notebook"];
         let tabs = Tabs::new(titles)
             .block(
                 Block::default()
-                    .title("xenolab v0.3.0")
+                    .title("xenolab v0.4.0")
                     .borders(Borders::ALL),
             )
             .select(self.active_view.as_index())
@@ -156,13 +181,14 @@ impl App {
             );
         frame.render_widget(tabs, chunks[0]);
 
-        if self.is_resolved() {
+        if self.is_resolved() && self.active_view != ActiveView::Notebook {
             view_debrief::render(frame, chunks[1], self);
         } else {
             match self.active_view {
                 ActiveView::Lab => view_lab::render_lab(frame, self, chunks[1]),
                 ActiveView::Journal => view_journal::render_journal(frame, self, chunks[1]),
                 ActiveView::Log => view_log::render(frame, chunks[1], self),
+                ActiveView::Notebook => view_notebook::render(frame, chunks[1], self),
             }
         }
 
@@ -184,6 +210,18 @@ impl App {
         if self.pending_seed_input.is_some() {
             return self.handle_seed_input(key);
         }
+        if self.notebook_editor.is_some() {
+            self.handle_notebook_editor_key(key);
+            return Ok(());
+        }
+        if self.notebook_delete_confirmation.is_some() {
+            match key.code {
+                KeyCode::Enter => self.confirm_notebook_delete(),
+                KeyCode::Esc => self.notebook_delete_confirmation = None,
+                _ => {}
+            }
+            return Ok(());
+        }
 
         match key.code {
             KeyCode::Char('q') => {
@@ -192,6 +230,16 @@ impl App {
             KeyCode::Char('1') => self.active_view = ActiveView::Lab,
             KeyCode::Char('2') => self.active_view = ActiveView::Journal,
             KeyCode::Char('3') => self.active_view = ActiveView::Log,
+            KeyCode::Char('4') => self.active_view = ActiveView::Notebook,
+            KeyCode::Char('a') if self.active_view == ActiveView::Notebook => {
+                self.begin_notebook_add();
+            }
+            KeyCode::Char('e') if self.active_view == ActiveView::Notebook => {
+                self.begin_notebook_edit();
+            }
+            KeyCode::Char('d') if self.active_view == ActiveView::Notebook => {
+                self.begin_notebook_delete();
+            }
             KeyCode::Char('r') if self.is_resolved() => self.restart_same_seed(),
             KeyCode::Char('n') if self.is_resolved() => self.begin_new_seed(),
             KeyCode::Char('j') => {
@@ -309,6 +357,7 @@ impl App {
                 "q quit | 1/2/3 tabs | up/down or j/k scroll | pgup/pgdn fast scroll"
             }
             ActiveView::Log => "q quit | 1/2/3 tabs | up/down scroll log",
+            ActiveView::Notebook => "q quit | 1/2/3/4 tabs | a add | e edit | d delete",
         }
     }
 
@@ -329,6 +378,9 @@ impl App {
             }
             ActiveView::Log => {
                 self.log_scroll = self.log_scroll.saturating_sub(1);
+            }
+            ActiveView::Notebook => {
+                self.notebook_selected = self.notebook_selected.saturating_sub(1);
             }
         }
     }
@@ -351,6 +403,12 @@ impl App {
             }
             ActiveView::Log => {
                 self.log_scroll = self.log_scroll.saturating_add(1);
+            }
+            ActiveView::Notebook => {
+                let len = self.simulator.notebook().hypotheses().len();
+                if len > 0 {
+                    self.notebook_selected = (self.notebook_selected + 1) % len;
+                }
             }
         }
     }
@@ -406,6 +464,164 @@ impl App {
         }
     }
 
+    fn begin_notebook_add(&mut self) {
+        if self.is_resolved() {
+            self.status_message = "Notebook is read-only after run resolution".to_string();
+            return;
+        }
+        let notebook = self.simulator.notebook();
+        if notebook.remaining_slots() == 0 {
+            self.status_message = "Notebook is full (8 / 8)".to_string();
+            return;
+        }
+        self.notebook_editor = Some(NotebookEditor {
+            id: None,
+            cause: 0,
+            direction: HypothesisDirection::Increases,
+            effect: 1,
+            field: NotebookField::Cause,
+        });
+    }
+
+    fn begin_notebook_edit(&mut self) {
+        if self.is_resolved() {
+            self.status_message = "Notebook is read-only after run resolution".to_string();
+            return;
+        }
+        let Some(hypothesis) = self
+            .simulator
+            .notebook()
+            .hypotheses()
+            .get(self.notebook_selected)
+        else {
+            self.status_message = "No hypothesis selected".to_string();
+            return;
+        };
+        let cause = ObservableVariable::ALL
+            .iter()
+            .position(|variable| *variable == hypothesis.cause)
+            .unwrap_or(0);
+        let effect = ObservableVariable::ALL
+            .iter()
+            .position(|variable| *variable == hypothesis.effect)
+            .unwrap_or(0);
+        self.notebook_editor = Some(NotebookEditor {
+            id: Some(hypothesis.id),
+            cause,
+            direction: hypothesis.direction,
+            effect,
+            field: NotebookField::Cause,
+        });
+    }
+
+    fn begin_notebook_delete(&mut self) {
+        if self.is_resolved() {
+            self.status_message = "Notebook is read-only after run resolution".to_string();
+            return;
+        }
+        if let Some(hypothesis) = self
+            .simulator
+            .notebook()
+            .hypotheses()
+            .get(self.notebook_selected)
+        {
+            self.notebook_delete_confirmation = Some(hypothesis.id);
+        } else {
+            self.status_message = "No hypothesis selected".to_string();
+        }
+    }
+
+    fn confirm_notebook_delete(&mut self) {
+        let Some(id) = self.notebook_delete_confirmation.take() else {
+            return;
+        };
+        match self.simulator.remove_hypothesis(id) {
+            Ok(()) => {
+                let len = self.simulator.notebook().hypotheses().len();
+                if len == 0 {
+                    self.notebook_selected = 0;
+                } else {
+                    self.notebook_selected = self.notebook_selected.min(len - 1);
+                }
+                self.status_message = "Hypothesis removed".to_string();
+            }
+            Err(error) => self.status_message = error.to_string(),
+        }
+    }
+
+    fn handle_notebook_editor_key(&mut self, key: KeyEvent) {
+        if key.code == KeyCode::Esc {
+            self.notebook_editor = None;
+            self.status_message = "Notebook edit cancelled".to_string();
+            return;
+        }
+        let Some(editor) = self.notebook_editor.as_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Up | KeyCode::Down => {
+                let delta = if key.code == KeyCode::Down { 1 } else { -1 };
+                match editor.field {
+                    NotebookField::Cause => {
+                        editor.cause =
+                            cycle_index(editor.cause, delta, ObservableVariable::ALL.len())
+                    }
+                    NotebookField::Direction => {
+                        editor.direction = match (editor.direction, delta) {
+                            (HypothesisDirection::Increases, 1) => HypothesisDirection::Decreases,
+                            (HypothesisDirection::Decreases, -1) => HypothesisDirection::Increases,
+                            (HypothesisDirection::Increases, -1) => HypothesisDirection::Decreases,
+                            (HypothesisDirection::Decreases, 1) => HypothesisDirection::Increases,
+                            _ => editor.direction,
+                        }
+                    }
+                    NotebookField::Effect => {
+                        editor.effect =
+                            cycle_index(editor.effect, delta, ObservableVariable::ALL.len())
+                    }
+                }
+            }
+            KeyCode::Tab | KeyCode::Right => editor.field = next_notebook_field(editor.field),
+            KeyCode::Left => editor.field = previous_notebook_field(editor.field),
+            KeyCode::Enter => {
+                if editor.field != NotebookField::Effect {
+                    editor.field = next_notebook_field(editor.field);
+                } else {
+                    self.submit_notebook_editor();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn submit_notebook_editor(&mut self) {
+        let Some(editor) = self.notebook_editor.take() else {
+            return;
+        };
+        let cause = ObservableVariable::ALL[editor.cause];
+        let effect = ObservableVariable::ALL[editor.effect];
+        let result = match editor.id {
+            Some(id) => self
+                .simulator
+                .edit_hypothesis(id, cause, editor.direction, effect)
+                .map(|()| id),
+            None => self
+                .simulator
+                .add_hypothesis(cause, editor.direction, effect),
+        };
+        match result {
+            Ok(id) => {
+                if editor.id.is_none() {
+                    self.notebook_selected = self.simulator.notebook().hypotheses().len() - 1;
+                }
+                self.status_message = format!("Hypothesis {} recorded", id.0);
+            }
+            Err(error) => {
+                self.status_message = error.to_string();
+            }
+        }
+    }
+
     fn handle_seed_input(&mut self, key: KeyEvent) -> Result<(), SimError> {
         match key.code {
             KeyCode::Esc => {
@@ -449,5 +665,36 @@ impl App {
     fn begin_new_seed(&mut self) {
         self.pending_seed_input = Some(String::new());
         self.status_message = "Enter a decimal u64 seed".to_string();
+    }
+}
+
+fn cycle_index(index: usize, delta: i32, length: usize) -> usize {
+    if length == 0 {
+        return 0;
+    }
+    if delta < 0 {
+        if index == 0 {
+            length - 1
+        } else {
+            index - 1
+        }
+    } else {
+        (index + 1) % length
+    }
+}
+
+fn next_notebook_field(field: NotebookField) -> NotebookField {
+    match field {
+        NotebookField::Cause => NotebookField::Direction,
+        NotebookField::Direction => NotebookField::Effect,
+        NotebookField::Effect => NotebookField::Cause,
+    }
+}
+
+fn previous_notebook_field(field: NotebookField) -> NotebookField {
+    match field {
+        NotebookField::Cause => NotebookField::Effect,
+        NotebookField::Direction => NotebookField::Cause,
+        NotebookField::Effect => NotebookField::Direction,
     }
 }

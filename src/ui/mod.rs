@@ -6,6 +6,7 @@ pub mod view_debrief;
 pub mod view_journal;
 pub mod view_lab;
 pub mod view_log;
+pub mod view_notebook;
 pub mod view_status;
 
 use thiserror::Error;

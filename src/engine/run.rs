@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::engine::contamination::ContaminationLevel;
 use crate::engine::ids::{NodeId, ObjectiveId};
+use crate::engine::notebook::Hypothesis;
 use crate::engine::world::WorldState;
 
 pub const ACTION_LIMIT: u32 = 30;
@@ -97,6 +98,7 @@ pub struct RunDebrief {
     pub final_nutrient: f32,
     pub objective_progress: ObjectiveProgress,
     pub event_hash: String,
+    pub notebook: Vec<Hypothesis>,
 }
 
 impl RunDebrief {
@@ -110,6 +112,7 @@ impl RunDebrief {
         compromised_scans: u32,
         critical_scans: u32,
         event_hash: String,
+        notebook: Vec<Hypothesis>,
     ) -> Self {
         Self {
             seed: run.seed,
@@ -134,6 +137,7 @@ impl RunDebrief {
             final_nutrient: state.get(NodeId::Nutrient),
             objective_progress: run.objective_progress,
             event_hash,
+            notebook,
         }
     }
 }

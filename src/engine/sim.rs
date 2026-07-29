@@ -8,6 +8,9 @@ use crate::engine::ids::NodeId;
 use crate::engine::interventions::Intervention;
 use crate::engine::math;
 use crate::engine::measurement::{sample_standard_normal, scan_chemicals, scan_population};
+use crate::engine::notebook::{
+    HypothesisDirection, HypothesisId, Notebook, NotebookError, ObservableVariable,
+};
 use crate::engine::run::{RunDebrief, RunFailure, RunState, RunStatus, ACTION_LIMIT};
 use crate::engine::runlog::{RunEvent, RunLog};
 use crate::engine::world::{UvToxinThresholdMode, WorldRecipe, WorldState};
@@ -48,6 +51,7 @@ pub struct Simulator {
     noise_mode: NoiseMode,
     rng: ChaCha8Rng,
     runlog: RunLog,
+    notebook: Notebook,
     run: RunState,
     debrief: Option<RunDebrief>,
     lifecycle_enabled: bool,
@@ -99,6 +103,7 @@ impl Simulator {
             noise_mode,
             rng: ChaCha8Rng::seed_from_u64(rng_seed),
             runlog: RunLog::default(),
+            notebook: Notebook::new(),
             run: RunState::with_action_limit(seed, objective, action_limit),
             debrief: None,
             lifecycle_enabled,
@@ -147,6 +152,44 @@ impl Simulator {
 
     pub fn debrief(&self) -> Option<&RunDebrief> {
         self.debrief.as_ref()
+    }
+
+    pub fn notebook(&self) -> &Notebook {
+        &self.notebook
+    }
+
+    pub fn add_hypothesis(
+        &mut self,
+        cause: ObservableVariable,
+        direction: HypothesisDirection,
+        effect: ObservableVariable,
+    ) -> Result<HypothesisId, NotebookError> {
+        self.ensure_notebook_editable()?;
+        self.notebook.add(cause, direction, effect)
+    }
+
+    pub fn edit_hypothesis(
+        &mut self,
+        id: HypothesisId,
+        cause: ObservableVariable,
+        direction: HypothesisDirection,
+        effect: ObservableVariable,
+    ) -> Result<(), NotebookError> {
+        self.ensure_notebook_editable()?;
+        self.notebook.edit(id, cause, direction, effect)
+    }
+
+    pub fn remove_hypothesis(&mut self, id: HypothesisId) -> Result<(), NotebookError> {
+        self.ensure_notebook_editable()?;
+        self.notebook.remove(id)
+    }
+
+    fn ensure_notebook_editable(&self) -> Result<(), NotebookError> {
+        if self.lifecycle_enabled && self.run.status != RunStatus::Active {
+            Err(NotebookError::RunResolved)
+        } else {
+            Ok(())
+        }
     }
 
     pub fn apply(
@@ -241,6 +284,7 @@ impl Simulator {
             crate::engine::runlog::hash_events(&self.runlog.events)
                 .to_hex()
                 .to_string(),
+            self.notebook.hypotheses().to_vec(),
         )
     }
 

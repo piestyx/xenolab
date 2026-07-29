@@ -4,8 +4,8 @@
 baseline is tagged `v0.1.4`: it generates a deterministic causal micro-ecosystem from a seed,
 lets you intervene in that world, and records run events with deterministic hashing.
 
-The v0.3.0 implementation adds a bounded run lifecycle with deterministic win/failure resolution,
-terminal lockout, debrief data, and same-seed/new-seed restart flow. See the [v1.0 completion
+The v0.4.0 implementation adds a bounded run lifecycle and structured research Notebook with
+deterministic win/failure resolution, terminal lockout, debrief data, and same-seed/new-seed restart flow. See the [v1.0 completion
 contract](docs/V1_COMPLETION_CONTRACT.md) and [v1.0 baseline audit](docs/V1_BASELINE_AUDIT.md).
 
 ## v0.1 Scope
@@ -74,11 +74,23 @@ World generation and simulation are seed-based and deterministic by design.
 - `n`: enter a new decimal `u64` seed, then press `Enter`; `Esc` cancels seed entry.
 - `q`: quit from the active run or debrief.
 
+## Notebook
+
+- The `Notebook` records templated causal theories in the form `X increases Y` or `X decreases Y`.
+- Only Plant, Fungus, Bacteria, Toxin, Nutrient, and UV are available as observable variables.
+- A run holds at most 8 hypotheses. Add, edit, and remove operations preserve insertion order and
+  use stable run-local IDs.
+- Notebook operations consume no action, tick, contamination, RNG, or runlog event.
+- Editing is available only during an active run. Resolved-run Notebook data remains visible and
+  read-only, and the final ordered snapshot appears in the debrief.
+- Hypotheses are recorded theory only; publishing and evidence evaluation are deferred.
+
 ## Tabs
 
 - `Lab`: live status, world metrics with deltas, and intervention actions
 - `Journal`: scenario text, objective narrative, rules, and controls
 - `Log`: chronological run events
+- `Notebook`: structured hypotheses and constrained add/edit/remove controls
 
 ## Objective Notes
 
@@ -93,10 +105,15 @@ World generation and simulation are seed-based and deterministic by design.
 - `1`: lab view
 - `2`: journal view
 - `3`: log view
+- `4`: Notebook view
 - `Up`/`Down`: navigate Lab actions, scroll Journal, or scroll Log
 - `j`/`k`: scroll Journal
 - `PageUp`/`PageDown`: fast-scroll Journal
 - `Enter`: apply selected intervention in Lab
+- `a`: add a Notebook hypothesis
+- `e`: edit the selected Notebook hypothesis
+- `d`: delete the selected Notebook hypothesis, then press `Enter` to confirm
+- `Esc`: cancel Notebook editing or deletion
 - `r`: restart same seed after resolution
 - `n`: enter a new seed after resolution
 

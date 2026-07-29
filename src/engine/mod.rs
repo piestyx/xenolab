@@ -6,6 +6,7 @@ pub mod invariants;
 pub mod math;
 pub mod measurement;
 pub mod node;
+pub mod notebook;
 pub mod run;
 pub mod runlog;
 pub mod sim;

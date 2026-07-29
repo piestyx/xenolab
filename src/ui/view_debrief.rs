@@ -29,7 +29,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         None => String::new(),
     };
     let text = format!(
-        "{outcome}\n\nSeed: {}\nObjective: {}\nOutcome: {:?}\nFailure: {failure}\n\nActions: {} / {}\nFinal tick: {}\nContamination: {:.2} ({})\nPeak contamination: {:.2}\nCompromised scans: {}\nCritical scans: {}\n\nPlant: {:.2}\nFungus: {:.2}\nBacteria: {:.2}\nToxin: {:.2}\nNutrient: {:.2}\n\nObjective progress: {} / {}\nRun-event hash: {}\n\nControls\nr same seed | n new seed | q quit{prompt}",
+        "{outcome}\n\nSeed: {}\nObjective: {}\nOutcome: {:?}\nFailure: {failure}\n\nActions: {} / {}\nFinal tick: {}\nContamination: {:.2} ({})\nPeak contamination: {:.2}\nCompromised scans: {}\nCritical scans: {}\n\nPlant: {:.2}\nFungus: {:.2}\nBacteria: {:.2}\nToxin: {:.2}\nNutrient: {:.2}\n\nObjective progress: {} / {}\nRun-event hash: {}\n\nRecorded hypotheses: {}\n{}\n\nControls\nr same seed | n new seed | 4 notebook | q quit{prompt}",
         debrief.seed,
         debrief.objective.label(),
         debrief.outcome,
@@ -49,6 +49,13 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         debrief.objective_progress.current,
         debrief.objective_progress.required,
         debrief.event_hash,
+        debrief.notebook.len(),
+        debrief
+            .notebook
+            .iter()
+            .map(|hypothesis| format!("[{}] {}", hypothesis.id.0, hypothesis.sentence()))
+            .collect::<Vec<_>>()
+            .join("\n"),
     );
     let paragraph = Paragraph::new(text)
         .block(Block::default().title("Debrief").borders(Borders::ALL))
