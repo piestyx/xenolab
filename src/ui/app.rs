@@ -4,6 +4,7 @@ use ratatui::prelude::{Alignment, Frame};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Paragraph, Tabs};
 
+use crate::engine::contamination::ContaminationLevel;
 use crate::engine::ids::{NodeId, ObjectiveId};
 use crate::engine::interventions::Intervention;
 use crate::engine::measurement::MeasurementRecord;
@@ -90,6 +91,10 @@ impl MenuAction {
             Self::AdvanceTime => Intervention::AdvanceTime,
         }
     }
+
+    pub fn contamination_cost(self) -> u32 {
+        self.to_intervention().contamination_cost()
+    }
 }
 
 pub struct App {
@@ -139,7 +144,7 @@ impl App {
         let tabs = Tabs::new(titles)
             .block(
                 Block::default()
-                    .title("xenolab v0.2.0")
+                    .title("xenolab v0.3.0")
                     .borders(Borders::ALL),
             )
             .select(self.active_view.as_index())
@@ -279,6 +284,18 @@ impl App {
         ACTION_LIMIT
     }
 
+    pub fn contamination_level(&self) -> ContaminationLevel {
+        self.simulator.contamination_level()
+    }
+
+    pub fn contamination_next_threshold(&self) -> Option<u32> {
+        self.contamination_level().next_threshold()
+    }
+
+    pub fn contamination_noise_multiplier(&self) -> f32 {
+        self.contamination_level().noise_multiplier()
+    }
+
     fn footer_text(&self) -> &'static str {
         if self.pending_seed_input.is_some() {
             return "digits enter confirm | esc cancel | q quit";
@@ -341,6 +358,7 @@ impl App {
     fn apply_selected_action(&mut self) -> Result<(), SimError> {
         let action = self.actions()[self.menu_index];
         let intervention = action.to_intervention();
+        let level_before = self.simulator.contamination_level();
         let before_state = *self.simulator.state();
         let before_tick = self.simulator.tick_index();
 
@@ -351,6 +369,20 @@ impl App {
         self.update_snapshot(before_state, before_tick, event.tick_index, state_changed);
 
         self.status_message = format!("tick={} action={}", event.tick_index, intervention.label());
+        let level_after = self.simulator.contamination_level();
+        if level_after != level_before {
+            match level_after {
+                ContaminationLevel::Compromised => {
+                    self.status_message =
+                        "Warning: contamination is COMPROMISED; scans are less precise".to_string();
+                }
+                ContaminationLevel::Critical => {
+                    self.status_message =
+                        "Warning: contamination is CRITICAL; containment fails at 40".to_string();
+                }
+                ContaminationLevel::Stable | ContaminationLevel::Lost => {}
+            }
+        }
         self.last_measurements = event.measurements.clone();
         self.last_event_summary = Some(format!(
             "action={} tick={} measurements={}",

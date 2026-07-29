@@ -2,12 +2,13 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use thiserror::Error;
 
+use crate::engine::contamination::{ContaminationLevel, CONTAINMENT_LOST_THRESHOLD};
 use crate::engine::graph::Graph;
 use crate::engine::ids::NodeId;
 use crate::engine::interventions::Intervention;
 use crate::engine::math;
 use crate::engine::measurement::{sample_standard_normal, scan_chemicals, scan_population};
-use crate::engine::run::{RunDebrief, RunState, RunStatus, ACTION_LIMIT};
+use crate::engine::run::{RunDebrief, RunFailure, RunState, RunStatus, ACTION_LIMIT};
 use crate::engine::runlog::{RunEvent, RunLog};
 use crate::engine::world::{UvToxinThresholdMode, WorldRecipe, WorldState};
 
@@ -41,6 +42,9 @@ pub struct Simulator {
     state: WorldState,
     tick: u32,
     contamination: f32,
+    peak_contamination: f32,
+    compromised_scans: u32,
+    critical_scans: u32,
     noise_mode: NoiseMode,
     rng: ChaCha8Rng,
     runlog: RunLog,
@@ -89,6 +93,9 @@ impl Simulator {
             recipe,
             tick: 0,
             contamination: 0.0,
+            peak_contamination: 0.0,
+            compromised_scans: 0,
+            critical_scans: 0,
             noise_mode,
             rng: ChaCha8Rng::seed_from_u64(rng_seed),
             runlog: RunLog::default(),
@@ -114,6 +121,22 @@ impl Simulator {
         self.contamination
     }
 
+    pub fn contamination_level(&self) -> ContaminationLevel {
+        ContaminationLevel::from_value(self.contamination)
+    }
+
+    pub fn peak_contamination(&self) -> f32 {
+        self.peak_contamination
+    }
+
+    pub fn compromised_scans(&self) -> u32 {
+        self.compromised_scans
+    }
+
+    pub fn critical_scans(&self) -> u32 {
+        self.critical_scans
+    }
+
     pub fn events(&self) -> &[RunEvent] {
         &self.runlog.events
     }
@@ -134,10 +157,27 @@ impl Simulator {
             return Err(SimError::RunResolved);
         }
 
+        let scan_level = if matches!(
+            &action,
+            Intervention::ScanPopulation | Intervention::ScanChemicals
+        ) {
+            Some(self.contamination_level())
+        } else {
+            None
+        };
         let mut measurements = Vec::new();
         self.apply_intervention(&action, &mut measurements)?;
         if action.ticks_time() {
             self.tick_once()?;
+        }
+
+        self.add_contamination(action.contamination_cost());
+        if let Some(level) = scan_level {
+            match level {
+                ContaminationLevel::Compromised => self.compromised_scans += 1,
+                ContaminationLevel::Critical => self.critical_scans += 1,
+                ContaminationLevel::Stable | ContaminationLevel::Lost => {}
+            }
         }
 
         let event = RunEvent {
@@ -153,9 +193,10 @@ impl Simulator {
             self.update_objective_progress();
             if self.run.objective_progress.is_complete() {
                 self.run.status = RunStatus::Won;
+            } else if self.contamination >= CONTAINMENT_LOST_THRESHOLD {
+                self.run.status = RunStatus::Failed(RunFailure::ContainmentLost);
             } else if self.run.actions_used >= self.run.action_limit {
-                self.run.status =
-                    RunStatus::Failed(crate::engine::run::RunFailure::ActionBudgetExhausted);
+                self.run.status = RunStatus::Failed(RunFailure::ActionBudgetExhausted);
             }
             if self.run.status != RunStatus::Active {
                 self.debrief = Some(self.build_debrief());
@@ -194,10 +235,27 @@ impl Simulator {
             &self.state,
             self.tick,
             self.contamination,
+            self.peak_contamination,
+            self.compromised_scans,
+            self.critical_scans,
             crate::engine::runlog::hash_events(&self.runlog.events)
                 .to_hex()
                 .to_string(),
         )
+    }
+
+    fn add_contamination(&mut self, cost: u32) {
+        let delta = cost as f32;
+        if delta == 0.0 {
+            return;
+        }
+
+        self.contamination = if self.contamination >= f32::MAX - delta {
+            f32::MAX
+        } else {
+            self.contamination + delta
+        };
+        self.peak_contamination = self.peak_contamination.max(self.contamination);
     }
 
     fn apply_intervention(
@@ -236,13 +294,22 @@ impl Simulator {
             Intervention::SterilizeSample => {
                 let next = self.state.get(NodeId::FungusLoad) - 50.0;
                 self.state.set(NodeId::FungusLoad, next);
-                self.contamination = math::clamp01(self.contamination + 15.0);
             }
             Intervention::ScanPopulation => {
-                measurements.extend(scan_population(&self.state, &mut self.rng, self.tick));
+                measurements.extend(scan_population(
+                    &self.state,
+                    &mut self.rng,
+                    self.tick,
+                    self.contamination,
+                ));
             }
             Intervention::ScanChemicals => {
-                measurements.extend(scan_chemicals(&self.state, &mut self.rng, self.tick));
+                measurements.extend(scan_chemicals(
+                    &self.state,
+                    &mut self.rng,
+                    self.tick,
+                    self.contamination,
+                ));
             }
             Intervention::AdvanceTime => {}
         }

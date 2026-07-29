@@ -34,6 +34,21 @@ impl Intervention {
         !matches!(self, Self::ScanPopulation | Self::ScanChemicals)
     }
 
+    pub fn contamination_cost(&self) -> u32 {
+        match self {
+            Self::ScanPopulation
+            | Self::ScanChemicals
+            | Self::AdvanceTime
+            | Self::SetUvLow
+            | Self::SetUvHigh => 0,
+            Self::AddNutrient(_) => 1,
+            Self::AddToxin(_) => 2,
+            Self::NeutralizeToxin(_) => 1,
+            Self::RemoveFungus | Self::RemoveBacteria => 1,
+            Self::SterilizeSample => 3,
+        }
+    }
+
     pub fn label(&self) -> &'static str {
         match self {
             Self::SetUvLow => "Set UV Low",

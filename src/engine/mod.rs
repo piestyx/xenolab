@@ -1,3 +1,4 @@
+pub mod contamination;
 pub mod graph;
 pub mod ids;
 pub mod interventions;

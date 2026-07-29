@@ -4,7 +4,7 @@
 baseline is tagged `v0.1.4`: it generates a deterministic causal micro-ecosystem from a seed,
 lets you intervene in that world, and records run events with deterministic hashing.
 
-The v0.2.0 implementation adds a bounded run lifecycle with deterministic win/failure resolution,
+The v0.3.0 implementation adds a bounded run lifecycle with deterministic win/failure resolution,
 terminal lockout, debrief data, and same-seed/new-seed restart flow. See the [v1.0 completion
 contract](docs/V1_COMPLETION_CONTRACT.md) and [v1.0 baseline audit](docs/V1_BASELINE_AUDIT.md).
 
@@ -51,6 +51,20 @@ World generation and simulation are seed-based and deterministic by design.
 - Completing the objective produces a win. Using all 30 actions without success produces an
   `ActionBudgetExhausted` failure. Resolved runs reject further simulation actions.
 - Runlog entries capture intervention, measurement data, tick, contamination, and state snapshot.
+
+## Contamination
+
+- Contamination is `Stable` from 0–19, `Compromised` from 20–29, `Critical` from 30–39, and
+  containment is lost at 40.
+- Action costs are: scans/advance time/UV `+0`, nutrient `+1`, toxin `+2`, neutralise toxin `+1`,
+  remove fungus/bacteria `+1`, and sterilise sample `+3`.
+- Stable scans use normal noise, Compromised scans use `1.5x` noise, and Critical scans use
+  `2.25x` noise. Contamination changes measurement fidelity only; true state and objectives are
+  unaffected.
+- Objective completion takes precedence over containment loss, which takes precedence over budget
+  failure.
+- The debrief reports final and peak contamination, classification, and scans taken while
+  Compromised or Critical.
 
 ## Debrief and Restart
 

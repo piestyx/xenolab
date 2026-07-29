@@ -63,6 +63,20 @@ fn render_main_columns(f: &mut Frame, app: &App, area: Rect) {
             app.actions_remaining(),
             app.action_limit()
         )),
+        ListItem::new(format!(
+            "Contamination: {:.0} / 40 ({})",
+            app.simulator.contamination(),
+            app.contamination_level().label()
+        )),
+        ListItem::new(format!(
+            "Scan noise: {:.2}x",
+            app.contamination_noise_multiplier()
+        )),
+        ListItem::new(format!(
+            "Next threshold: {}",
+            app.contamination_next_threshold()
+                .map_or_else(|| "none".to_string(), |threshold| threshold.to_string())
+        )),
         ListItem::new(""),
         ListItem::new(format!(
             "Plant: {:.2}",
@@ -120,7 +134,13 @@ fn render_main_columns(f: &mut Frame, app: &App, area: Rect) {
     let items: Vec<ListItem> = app
         .actions()
         .iter()
-        .map(|action| ListItem::new(action.label()))
+        .map(|action| {
+            ListItem::new(format!(
+                "{} c+{}",
+                action.label(),
+                action.contamination_cost()
+            ))
+        })
         .collect();
     let list = List::new(items)
         .block(Block::default().title("Actions").borders(Borders::ALL))
@@ -149,10 +169,11 @@ fn render_last_result(f: &mut Frame, app: &App, area: Rect) {
             .iter()
             .map(|m| {
                 format!(
-                    "{} {:.1}->{:.1}",
+                    "{} {:.1}->{:.1} (sigma {:.2})",
                     m.node.stable_name(),
                     m.true_value,
-                    m.measured_value
+                    m.measured_value,
+                    m.effective_sigma
                 )
             })
             .collect::<Vec<String>>()

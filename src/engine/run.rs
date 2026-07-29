@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::engine::contamination::ContaminationLevel;
 use crate::engine::ids::{NodeId, ObjectiveId};
 use crate::engine::world::WorldState;
 
@@ -9,6 +10,7 @@ pub const OBJECTIVE_HOLD_REQUIRED: u32 = 3;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RunFailure {
     ActionBudgetExhausted,
+    ContainmentLost,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -84,6 +86,10 @@ pub struct RunDebrief {
     pub action_limit: u32,
     pub final_tick: u32,
     pub final_contamination: f32,
+    pub final_contamination_level: ContaminationLevel,
+    pub peak_contamination: f32,
+    pub compromised_scans: u32,
+    pub critical_scans: u32,
     pub final_plant: f32,
     pub final_fungus: f32,
     pub final_bacteria: f32,
@@ -94,11 +100,15 @@ pub struct RunDebrief {
 }
 
 impl RunDebrief {
+    #[allow(clippy::too_many_arguments)]
     pub fn from_terminal_state(
         run: &RunState,
         state: &WorldState,
         tick: u32,
         contamination: f32,
+        peak_contamination: f32,
+        compromised_scans: u32,
+        critical_scans: u32,
         event_hash: String,
     ) -> Self {
         Self {
@@ -113,6 +123,10 @@ impl RunDebrief {
             action_limit: run.action_limit,
             final_tick: tick,
             final_contamination: contamination,
+            final_contamination_level: ContaminationLevel::from_value(contamination),
+            peak_contamination,
+            compromised_scans,
+            critical_scans,
             final_plant: state.get(NodeId::PlantPop),
             final_fungus: state.get(NodeId::FungusLoad),
             final_bacteria: state.get(NodeId::BacteriaPop),
