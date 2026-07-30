@@ -16,6 +16,30 @@ use crate::engine::sim::{SimError, Simulator};
 use crate::engine::world::WorldState;
 use crate::ui::{view_debrief, view_journal, view_lab, view_log, view_notebook, view_repairs};
 
+pub const MIN_TERMINAL_WIDTH: u16 = 80;
+pub const MIN_TERMINAL_HEIGHT: u16 = 24;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogFilter {
+    All,
+    Interventions,
+    Measurements,
+    Publications,
+    Repairs,
+}
+
+impl LogFilter {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Interventions => "interventions",
+            Self::Measurements => "measurements",
+            Self::Publications => "publications",
+            Self::Repairs => "repairs",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveView {
     Lab,
@@ -118,6 +142,29 @@ impl MenuAction {
     pub fn contamination_cost(self) -> u32 {
         self.to_intervention().contamination_cost()
     }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::SetUvLow | Self::SetUvHigh => "Sets the environmental UV level",
+            Self::AddNutrient => "Increases nutrient concentration",
+            Self::AddToxin => "Increases toxin concentration",
+            Self::NeutralizeToxin => "Reduces toxin concentration",
+            Self::RemoveFungus => "Removes fungus population",
+            Self::RemoveBacteria => "Removes bacteria population",
+            Self::SterilizeSample => "Removes fungus from the sample",
+            Self::ScanPopulation => "Measures organism populations",
+            Self::ScanChemicals => "Measures toxin and nutrient concentrations",
+            Self::AdvanceTime => "Advances ecosystem simulation without an intervention",
+        }
+    }
+
+    pub fn measurement_category(self) -> Option<&'static str> {
+        match self {
+            Self::ScanPopulation => Some("population instrument"),
+            Self::ScanChemicals => Some("chemical instrument"),
+            _ => None,
+        }
+    }
 }
 
 pub struct App {
@@ -140,6 +187,9 @@ pub struct App {
     pub notebook_publish_confirmation: Option<HypothesisId>,
     pub repair_selected: usize,
     pub repair_confirmation: Option<RepairTrack>,
+    pub log_filter: LogFilter,
+    pub repeat_last_action: Option<Intervention>,
+    pub help_open: bool,
 }
 
 impl App {
@@ -166,20 +216,28 @@ impl App {
             notebook_publish_confirmation: None,
             repair_selected: 0,
             repair_confirmation: None,
+            log_filter: LogFilter::All,
+            repeat_last_action: None,
+            help_open: false,
         }
     }
 
     pub fn render(&self, frame: &mut Frame) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(3), Constraint::Min(0)])
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Min(0),
+                Constraint::Length(1),
+            ])
             .split(frame.size());
 
         let titles = ["1 Lab", "2 Journal", "3 Log", "4 Notebook", "5 Repairs"];
         let tabs = Tabs::new(titles)
             .block(
                 Block::default()
-                    .title("xenolab v0.6.0")
+                    .title("xenolab v0.7.0")
                     .borders(Borders::ALL),
             )
             .select(self.active_view.as_index())
@@ -191,36 +249,76 @@ impl App {
             );
         frame.render_widget(tabs, chunks[0]);
 
+        let status = Paragraph::new(self.persistent_status_text())
+            .block(Block::default().title("Run Status").borders(Borders::ALL))
+            .wrap(ratatui::widgets::Wrap { trim: false })
+            .style(Style::default().fg(Color::White));
+        frame.render_widget(status, chunks[1]);
+
+        if frame.size().width < MIN_TERMINAL_WIDTH || frame.size().height < MIN_TERMINAL_HEIGHT {
+            let message = Paragraph::new(format!(
+                "Terminal too small. Resize to at least {}×{} to continue. Press q to quit.",
+                MIN_TERMINAL_WIDTH, MIN_TERMINAL_HEIGHT
+            ))
+            .block(
+                Block::default()
+                    .title("Resize required")
+                    .borders(Borders::ALL),
+            );
+            frame.render_widget(message, chunks[2]);
+            self.render_footer(frame, chunks[3]);
+            return;
+        }
+
+        if self.help_open {
+            let help = Paragraph::new(self.help_text())
+                .block(
+                    Block::default()
+                        .title("Help (press ? to close)")
+                        .borders(Borders::ALL),
+                )
+                .wrap(ratatui::widgets::Wrap { trim: false });
+            frame.render_widget(help, chunks[2]);
+            self.render_footer(frame, chunks[3]);
+            return;
+        }
+
         if self.is_resolved()
             && self.active_view != ActiveView::Notebook
             && self.active_view != ActiveView::Repairs
         {
-            view_debrief::render(frame, chunks[1], self);
+            view_debrief::render(frame, chunks[2], self);
         } else {
             match self.active_view {
-                ActiveView::Lab => view_lab::render_lab(frame, self, chunks[1]),
-                ActiveView::Journal => view_journal::render_journal(frame, self, chunks[1]),
-                ActiveView::Log => view_log::render(frame, chunks[1], self),
-                ActiveView::Notebook => view_notebook::render(frame, chunks[1], self),
-                ActiveView::Repairs => view_repairs::render(frame, chunks[1], self),
+                ActiveView::Lab => view_lab::render_lab(frame, self, chunks[2]),
+                ActiveView::Journal => view_journal::render_journal(frame, self, chunks[2]),
+                ActiveView::Log => view_log::render(frame, chunks[2], self),
+                ActiveView::Notebook => view_notebook::render(frame, chunks[2], self),
+                ActiveView::Repairs => view_repairs::render(frame, chunks[2], self),
             }
         }
+        self.render_footer(frame, chunks[3]);
+    }
 
+    fn render_footer(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
         let footer = Paragraph::new(self.footer_text())
             .style(Style::default().fg(Color::DarkGray))
             .alignment(Alignment::Right);
-        let footer_area = ratatui::layout::Rect {
-            x: chunks[1].x,
-            y: chunks[1]
-                .y
-                .saturating_add(chunks[1].height.saturating_sub(1)),
-            width: chunks[1].width.saturating_sub(1),
-            height: 1,
-        };
-        frame.render_widget(footer, footer_area);
+        frame.render_widget(footer, area);
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Result<(), SimError> {
+        if key.code == KeyCode::Char('q') {
+            self.should_quit = true;
+            return Ok(());
+        }
+        if key.code == KeyCode::Char('?') {
+            self.help_open = !self.help_open;
+            return Ok(());
+        }
+        if self.help_open {
+            return Ok(());
+        }
         if self.pending_seed_input.is_some() {
             return self.handle_seed_input(key);
         }
@@ -262,6 +360,29 @@ impl App {
             KeyCode::Char('3') => self.active_view = ActiveView::Log,
             KeyCode::Char('4') => self.active_view = ActiveView::Notebook,
             KeyCode::Char('5') => self.active_view = ActiveView::Repairs,
+            KeyCode::Char('x') if self.active_view == ActiveView::Lab && !self.is_resolved() => {
+                self.repeat_last_action()?;
+            }
+            KeyCode::Char('a') if self.active_view == ActiveView::Log => {
+                self.log_filter = LogFilter::All;
+                self.log_scroll = 0;
+            }
+            KeyCode::Char('i') if self.active_view == ActiveView::Log => {
+                self.log_filter = LogFilter::Interventions;
+                self.log_scroll = 0;
+            }
+            KeyCode::Char('m') if self.active_view == ActiveView::Log => {
+                self.log_filter = LogFilter::Measurements;
+                self.log_scroll = 0;
+            }
+            KeyCode::Char('p') if self.active_view == ActiveView::Log => {
+                self.log_filter = LogFilter::Publications;
+                self.log_scroll = 0;
+            }
+            KeyCode::Char('r') if self.active_view == ActiveView::Log => {
+                self.log_filter = LogFilter::Repairs;
+                self.log_scroll = 0;
+            }
             KeyCode::Char('a') if self.active_view == ActiveView::Notebook => {
                 self.begin_notebook_add();
             }
@@ -358,7 +479,20 @@ impl App {
 
     pub fn objective_progress_text(&self) -> String {
         let progress = self.simulator.run_state().objective_progress;
-        format!("{} / {} evaluations", progress.current, progress.required)
+        match self.objective {
+            ObjectiveId::StabilizePlant => format!(
+                "Plant stability: {} / {} consecutive evaluations at 60+",
+                progress.current, progress.required
+            ),
+            ObjectiveId::Detox => format!(
+                "Detox hold: {} / {} consecutive evaluations at toxin 15 or below",
+                progress.current, progress.required
+            ),
+            ObjectiveId::PreventCollapse => format!(
+                "Collapse prevention: {} / {} evaluations with plant and bacteria at 25+",
+                progress.current, progress.required
+            ),
+        }
     }
 
     pub fn actions_remaining(&self) -> u32 {
@@ -381,6 +515,53 @@ impl App {
         self.contamination_level().noise_multiplier()
     }
 
+    pub fn terminal_size_supported(width: u16, height: u16) -> bool {
+        width >= MIN_TERMINAL_WIDTH && height >= MIN_TERMINAL_HEIGHT
+    }
+
+    fn persistent_status_text(&self) -> String {
+        let status = match self.simulator.run_state().status {
+            RunStatus::Active => "ACTIVE",
+            RunStatus::Won => "RUN COMPLETE",
+            RunStatus::Failed(_) => "RUN FAILED",
+        };
+        let pressure = if self.actions_remaining() <= 5 {
+            " | LOW ACTIONS"
+        } else {
+            ""
+        };
+        format!(
+            "{} | {} | actions {}/{} | contamination {:.0} {} | scan ×{:.2} | credits {} | repairs C{} / K{}{} | {}",
+            status,
+            self.objective_progress_text(),
+            self.actions_remaining(),
+            self.action_limit(),
+            self.simulator.contamination(),
+            self.contamination_level().label(),
+            self.contamination_noise_multiplier() * self.simulator.calibration_multiplier(),
+            self.simulator.credits_available(),
+            self.simulator.calibration_level().level(),
+            self.simulator.containment_level().level(),
+            pressure,
+            self.status_message,
+        )
+    }
+
+    fn help_text(&self) -> String {
+        "Tabs: 1 Lab | 2 Journal | 3 Log | 4 Notebook | 5 Repairs
+
+Lab: Up/Down select | Enter apply | x repeat last action
+Journal: Up/Down or j/k scroll | PageUp/PageDown jump
+Log: Up/Down scroll | a all | i interventions | m measurements | p publications | r repairs
+Notebook: a add | e edit | d delete | p publish | Enter confirm | Esc cancel
+Repairs: Up/Down select | Enter purchase | Esc cancel
+Dialogs: Enter confirm | Esc cancel | ? close help
+Run: r same-seed restart | n new-seed restart after resolution | q quit
+
+Scans cost one action but no tick. Publications cost one action. Repairs cost no action."
+            .to_string()
+    }
+
     fn footer_text(&self) -> &'static str {
         if self.pending_seed_input.is_some() {
             return "digits enter confirm | esc cancel | q quit";
@@ -390,14 +571,14 @@ impl App {
         }
         match self.active_view {
             ActiveView::Lab => {
-                "q quit | 1/2/3/4/5 tabs | arrows actions | enter apply | 30 actions"
+                "? help | q quit | tabs 1-5 | arrows select | enter apply | x repeat"
             }
-            ActiveView::Journal => {
-                "q quit | 1/2/3/4/5 tabs | up/down or j/k scroll | pgup/pgdn fast scroll"
+            ActiveView::Journal => "? help | q quit | tabs 1-5 | up/down or j/k scroll | pgup/pgdn",
+            ActiveView::Log => "? help | q quit | tabs 1-5 | scroll | a/i/m/p/r filters",
+            ActiveView::Notebook => {
+                "? help | q quit | tabs 1-5 | a add | e edit | d delete | p publish"
             }
-            ActiveView::Log => "q quit | 1/2/3/4/5 tabs | up/down scroll log",
-            ActiveView::Notebook => "q quit | 1/2/3/4/5 tabs | a add | e edit | d delete",
-            ActiveView::Repairs => "q quit | 1/2/3/4/5 tabs | arrows select | enter purchase",
+            ActiveView::Repairs => "? help | q quit | tabs 1-5 | arrows select | enter purchase",
         }
     }
 
@@ -461,10 +642,22 @@ impl App {
 
     fn apply_selected_action(&mut self) -> Result<(), SimError> {
         let action = self.actions()[self.menu_index];
-        let intervention = action.to_intervention();
+        self.apply_intervention(action.to_intervention())
+    }
+
+    fn repeat_last_action(&mut self) -> Result<(), SimError> {
+        let Some(intervention) = self.repeat_last_action.clone() else {
+            self.status_message = "No accepted Lab action to repeat".to_string();
+            return Ok(());
+        };
+        self.apply_intervention(intervention)
+    }
+
+    fn apply_intervention(&mut self, intervention: Intervention) -> Result<(), SimError> {
         let level_before = self.simulator.contamination_level();
         let before_state = *self.simulator.state();
         let before_tick = self.simulator.tick_index();
+        let progress_before = self.simulator.run_state().objective_progress;
 
         let event = self.simulator.apply(intervention.clone())?;
         let after_state = *self.simulator.state();
@@ -473,6 +666,13 @@ impl App {
         self.update_snapshot(before_state, before_tick, event.tick_index, state_changed);
 
         self.status_message = format!("tick={} action={}", event.tick_index, intervention.label());
+        let progress_after = self.simulator.run_state().objective_progress;
+        if progress_after.current < progress_before.current {
+            self.status_message = format!(
+                "Objective progress reset: {}",
+                self.objective_reset_message()
+            );
+        }
         let level_after = self.simulator.contamination_level();
         if level_after != level_before {
             match level_after {
@@ -494,8 +694,17 @@ impl App {
             event.tick_index,
             event.measurements.len()
         ));
+        self.repeat_last_action = Some(intervention);
 
         Ok(())
+    }
+
+    fn objective_reset_message(&self) -> &'static str {
+        match self.objective {
+            ObjectiveId::StabilizePlant => "plant fell below 60",
+            ObjectiveId::Detox => "toxin rose above 15",
+            ObjectiveId::PreventCollapse => "plant or bacteria fell below 25",
+        }
     }
 
     fn update_snapshot(

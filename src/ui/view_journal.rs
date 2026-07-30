@@ -6,12 +6,20 @@ use crate::ui::app::App;
 
 pub fn render_journal(f: &mut Frame, app: &App, area: Rect) {
     let text = format!(
-        "XENOLAB FIELD JOURNAL\n\nSeed: {}\nTick: {}\nObjective: {}\nProgress: {}\nActions remaining: {}\n\nSituation\nA contained xenobiology sample is active in the wet lab.\nInterventions shift populations and chemistry when time advances.\nMeasurements are noisy; scans report instrument readings.\n\nContamination\n- Invasive actions accumulate contamination; scans remain contamination-free.\n- 0-19 Stable, 20-29 Compromised, 30-39 Critical, and 40 loses containment.\n- Compromised scans use 1.5x noise; Critical scans use 2.25x noise.\n- Objective completion wins if it occurs on the same action as containment loss.\n\nNotebook and publication\n- The Notebook records theory using observable variables.\n- Publication costs one action, is permanent, and evaluates current-run evidence.\n- Unsupported claims earn no credits; repeated consistent evidence can earn stronger results.\n\nRepairs\n- Publication credits are run-local and can be spent in the Repairs tab.\n- Calibration reduces future scan noise; Containment reduces future contamination costs.\n- Each track has two levels. Repairs consume no actions, ticks, contamination, or RNG.\n- Repairs never rewrite previous events and reset with the run.\n\nRules\n- Every accepted intervention, scan, or publication consumes one of 30 actions.\n- Most interventions advance one simulation tick; scans and publications do not.\n- A completed objective wins; 30 actions without success fails and locks the run.\n\nControls\n- q: quit\n- 1/2/3/4/5: switch tabs\n- Tab 1 (Lab): arrows choose action, Enter applies\n- Tab 2 (Journal): Up/Down or j/k scroll\n- Tab 3 (Log): Up/Down scroll events and separate records\n- Tab 4 (Notebook): a add, e edit, d delete, p publish\n- Tab 5 (Repairs): arrows select, Enter purchase after confirmation\n- Resolved run: r same seed, n new seed, q quit\n",
+        "XENOLAB FIELD JOURNAL\n\nRun\nSeed: {} | Tick: {} | Actions remaining: {}\nObjective: {}\n{}\n\nBriefing\n{}\n\nHow to play\nEvery accepted intervention, scan, or publication uses 1 of 30 actions.\nInterventions and Advance Time move the simulation one tick; scans do not.\nA scan still costs an action. Objective progress is checked after accepted actions;\nqualifying evaluations are consecutive, and any failed evaluation resets the hold.\n\nRisk\nContamination: 0-19 Stable, 20-29 Compromised, 30-39 Critical, 40 loses containment.\nCompromised and Critical scans are noisier. Objective win takes precedence on the same action.\n\nResearch loop\nNotebook: record X increases/decreases Y using the six observable variables.\nPublication: select a hypothesis and publish after a direct cause intervention plus the\nrequired follow-up population or chemical scan. Publication costs 1 action and is permanent.\nUnsupported claims earn 0; repeated, consistent evidence earns stronger results.\n\nCredits and Repairs\nPublications award run-local credits. Repairs spends them without actions, ticks,\ncontamination, or RNG: Calibration improves future scan precision; Containment lowers\nfuture contamination costs. Both tracks reset when restarting.\n\nControls\n1-5 tabs | ? help | q quit | Lab: arrows/Enter apply, x repeat last action\nJournal: arrows, j/k, PageUp/PageDown scroll | Log: arrows, a all, i interventions,\nm measurements, p publications, r repairs | Notebook: a/e/d/p, Enter, Esc\nRepairs: arrows/Enter, Esc | resolved: r same seed, n new seed, q quit\n",
         app.seed,
         app.simulator.tick_index(),
+        app.actions_remaining(),
         app.objective.label(),
         app.objective_progress_text(),
-        app.actions_remaining(),
+        match app.objective {
+            crate::engine::ids::ObjectiveId::StabilizePlant =>
+                "Stabilize Plant: plant population must remain at 60+ for 3 consecutive evaluations.",
+            crate::engine::ids::ObjectiveId::Detox =>
+                "Detox: toxin concentration must remain at 15 or below for 3 consecutive evaluations.",
+            crate::engine::ids::ObjectiveId::PreventCollapse =>
+                "Prevent Collapse: plant and bacteria must both remain at 25+ for 3 consecutive evaluations.",
+        },
     );
 
     let paragraph = Paragraph::new(text)

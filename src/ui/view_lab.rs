@@ -177,6 +177,28 @@ fn render_main_columns(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_last_result(f: &mut Frame, app: &App, area: Rect) {
+    let selected = app.actions()[app.menu_index];
+    let selected_intervention = selected.to_intervention();
+    let base_cost = selected_intervention.contamination_cost();
+    let effective_cost = app
+        .simulator
+        .effective_contamination_cost(&selected_intervention);
+    let measurement = selected
+        .measurement_category()
+        .map_or_else(String::new, |category| format!(" | Measures: {category}"));
+    let selected_line = format!(
+        "Selected: {} — {} | Action: 1 | Tick: +{} | Contamination: +{} (base +{}){}",
+        selected.label(),
+        selected.description(),
+        if selected_intervention.ticks_time() {
+            1
+        } else {
+            0
+        },
+        effective_cost,
+        base_cost,
+        measurement
+    );
     let action_line = match &app.last_event_summary {
         Some(summary) => format!("Last action: {summary}"),
         None => String::from("Last action: none"),
@@ -190,11 +212,13 @@ fn render_last_result(f: &mut Frame, app: &App, area: Rect) {
             .iter()
             .map(|m| {
                 format!(
-                    "{} {:.1}->{:.1} (sigma {:.2})",
+                    "{} measured {:.1} (sigma {:.2}, contam ×{:.2}, cal ×{:.2}, total ×{:.2})",
                     m.node.stable_name(),
-                    m.true_value,
                     m.measured_value,
-                    m.effective_sigma
+                    m.effective_sigma,
+                    m.contamination_multiplier,
+                    m.calibration_multiplier,
+                    m.total_multiplier
                 )
             })
             .collect::<Vec<String>>()
@@ -224,7 +248,7 @@ fn render_last_result(f: &mut Frame, app: &App, area: Rect) {
         format!("Recent:\n{}", recent.join("\n"))
     };
 
-    let text = format!("{action_line}\n{measurement_line}\n{recent_line}");
+    let text = format!("{selected_line}\n{action_line}\n{measurement_line}\n{recent_line}");
     let panel = Paragraph::new(text)
         .block(Block::default().title("Last Result").borders(Borders::ALL))
         .wrap(Wrap { trim: false });

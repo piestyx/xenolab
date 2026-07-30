@@ -4,7 +4,9 @@
 baseline is tagged `v0.1.4`: it generates a deterministic causal micro-ecosystem from a seed,
 lets you intervene in that world, and records run events with deterministic hashing.
 
-The v0.6.0 implementation adds run-local credit spending through Calibration and Containment
+The v0.7.0 implementation adds in-game guidance, persistent status, readable action metadata,
+Log filtering, repeat-last-action, Help, and safe terminal-size handling to the v0.6.0 run-local
+credit spending through Calibration and Containment
 repairs on top of publication, deterministic evidence grading, the bounded run lifecycle and structured research Notebook with
 deterministic win/failure resolution, terminal lockout, debrief data, and same-seed/new-seed restart flow. See the [v1.0 completion
 contract](docs/V1_COMPLETION_CONTRACT.md) and [v1.0 baseline audit](docs/V1_BASELINE_AUDIT.md).
@@ -122,6 +124,19 @@ World generation and simulation are seed-based and deterministic by design.
 - `Log`: chronological run events
 - `Notebook`: structured hypotheses and constrained add/edit/remove controls
 - `Repairs`: run-local Calibration and Containment purchases with numeric previews
+
+## In-game guidance and controls
+
+- The Journal explains the selected objective, consecutive progress/reset rules, the 30-action
+  pressure, contamination thresholds, Notebook/publication loop, credits, repairs, restart, and quit.
+- Lab action details show the action cost, whether time advances, measurement category, and effective
+  contamination cost after Containment repairs. Scan results show measured values and contamination,
+  Calibration, and total noise multipliers.
+- The Log supports filters: `a` all, `i` interventions, `m` measurements, `p` publications, and `r`
+  repairs. Filtering changes only the display; stored records and hashes are unchanged.
+- In Lab, `x` repeats the last accepted intervention or scan through the normal engine path.
+- `?` opens the complete in-game control reference. A minimum terminal size of 80 columns by 24 rows
+  is supported; smaller terminals show a resize message and still accept `q`.
 
 ## Objective Notes
 
