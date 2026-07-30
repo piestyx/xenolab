@@ -231,6 +231,35 @@ impl Simulator {
             .saturating_sub(self.containment_reduction())
     }
 
+    /// Hashes the complete outcome-relevant run record.
+    ///
+    /// This intentionally remains separate from `hash_events`, which is the
+    /// gameplay-event hash and excludes Notebook/publication/repair records.
+    pub fn verification_hash(&self) -> blake3::Hash {
+        let recipe_hash = self.recipe.recipe_hash().ok();
+        let event_hash = crate::engine::runlog::hash_events(&self.runlog.events);
+        let payload = (
+            "xenolab-verification-v1",
+            self.recipe.seed,
+            recipe_hash.map(|hash| hash.as_bytes().to_vec()),
+            event_hash.as_bytes().to_vec(),
+            &self.notebook,
+            &self.publications,
+            self.credit_wallet.earned(),
+            self.credit_wallet.spent(),
+            self.credit_wallet.available(),
+            self.calibration_level,
+            self.containment_level,
+            &self.repair_purchases,
+            &self.run,
+            &self.debrief,
+        );
+        match serde_json::to_vec(&payload) {
+            Ok(bytes) => blake3::hash(&bytes),
+            Err(_) => blake3::hash(b"xenolab-verification-error"),
+        }
+    }
+
     pub fn purchase_repair(&mut self, track: RepairTrack) -> Result<RepairPurchase, RepairError> {
         if self.lifecycle_enabled && self.run.status != RunStatus::Active {
             return Err(RepairError::RunResolved);

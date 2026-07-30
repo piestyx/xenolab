@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
-use xenolab::ui::app::{ActiveView, App, LogFilter};
+use xenolab::ui::app::{parse_seed, ActiveView, App, LogFilter, SeedParseError};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
@@ -61,6 +61,53 @@ fn undersized_terminal_renders_resize_message_and_quit_remains_available() {
         .map(|cell| cell.symbol())
         .collect::<String>();
     assert!(rendered.contains("Resize required"));
+    app.handle_key(key(KeyCode::Char('q'))).unwrap();
+    assert!(app.should_quit);
+}
+
+#[test]
+fn seed_parser_covers_boundaries_without_ui_state_changes() {
+    assert_eq!(parse_seed(" 0 ").unwrap(), 0);
+    assert_eq!(parse_seed(" 18446744073709551615 ").unwrap(), u64::MAX);
+    assert_eq!(parse_seed(""), Err(SeedParseError::Empty));
+    assert_eq!(parse_seed("   "), Err(SeedParseError::Empty));
+    assert_eq!(parse_seed("-1"), Err(SeedParseError::Invalid));
+    assert_eq!(parse_seed("42x"), Err(SeedParseError::Invalid));
+    assert_eq!(
+        parse_seed("18446744073709551616"),
+        Err(SeedParseError::Overflow)
+    );
+}
+
+#[test]
+fn every_view_and_help_render_at_the_supported_minimum() {
+    for view in [
+        ActiveView::Lab,
+        ActiveView::Journal,
+        ActiveView::Log,
+        ActiveView::Notebook,
+        ActiveView::Repairs,
+    ] {
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = App::new(42);
+        app.active_view = view;
+        terminal.draw(|frame| app.render(frame)).unwrap();
+        app.handle_key(key(KeyCode::Char('?'))).unwrap();
+        terminal.draw(|frame| app.render(frame)).unwrap();
+        app.handle_key(key(KeyCode::Char('?'))).unwrap();
+        assert!(!app.help_open);
+    }
+}
+
+#[test]
+fn modal_cancellation_is_safe_and_quit_is_global() {
+    let mut app = App::new(42);
+    app.active_view = ActiveView::Notebook;
+    app.handle_key(key(KeyCode::Char('a'))).unwrap();
+    assert!(app.notebook_editor.is_some());
+    app.handle_key(key(KeyCode::Esc)).unwrap();
+    assert!(app.notebook_editor.is_none());
     app.handle_key(key(KeyCode::Char('q'))).unwrap();
     assert!(app.should_quit);
 }

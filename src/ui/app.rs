@@ -3,6 +3,7 @@ use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::prelude::{Alignment, Frame};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Paragraph, Tabs};
+use thiserror::Error;
 
 use crate::engine::contamination::ContaminationLevel;
 use crate::engine::ids::{NodeId, ObjectiveId};
@@ -26,6 +27,27 @@ pub enum LogFilter {
     Measurements,
     Publications,
     Repairs,
+}
+
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+pub enum SeedParseError {
+    #[error("seed is empty")]
+    Empty,
+    #[error("seed must be a decimal u64")]
+    Invalid,
+    #[error("seed is larger than u64::MAX")]
+    Overflow,
+}
+
+pub fn parse_seed(input: &str) -> Result<u64, SeedParseError> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err(SeedParseError::Empty);
+    }
+    if !trimmed.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(SeedParseError::Invalid);
+    }
+    trimmed.parse::<u64>().map_err(|_| SeedParseError::Overflow)
 }
 
 impl LogFilter {
@@ -237,7 +259,7 @@ impl App {
         let tabs = Tabs::new(titles)
             .block(
                 Block::default()
-                    .title("xenolab v0.8.0")
+                    .title("xenolab v0.9.0")
                     .borders(Borders::ALL),
             )
             .select(self.active_view.as_index())
@@ -978,7 +1000,7 @@ Scans cost one action but no tick. Publications cost one action. Repairs cost no
                     input.pop();
                 }
             }
-            KeyCode::Char(ch) if ch.is_ascii_digit() => {
+            KeyCode::Char(ch) if ch.is_ascii_digit() || ch.is_ascii_whitespace() => {
                 if let Some(input) = self.pending_seed_input.as_mut() {
                     if input.len() < 20 {
                         input.push(ch);
@@ -989,12 +1011,9 @@ Scans cost one action but no tick. Publications cost one action. Repairs cost no
                 let Some(input) = self.pending_seed_input.as_deref() else {
                     return Ok(());
                 };
-                match input.parse::<u64>() {
+                match parse_seed(input) {
                     Ok(seed) => *self = Self::new(seed),
-                    Err(_) => {
-                        self.status_message =
-                            "Invalid decimal u64 seed; enter digits or press Esc".to_string();
-                    }
+                    Err(error) => self.status_message = error.to_string(),
                 }
             }
             _ => {}

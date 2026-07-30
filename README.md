@@ -1,176 +1,131 @@
 # xenolab
 
-`xenolab` is a prototype terminal research roguelike in Rust. The current implementation
-baseline is tagged `v0.1.4`: it generates a deterministic causal micro-ecosystem from a seed,
-lets you intervene in that world, and records run events with deterministic hashing.
+`xenolab` is a deterministic terminal research game. You investigate a seeded
+micro-ecosystem with interventions and noisy instruments, record causal
+hypotheses, publish evidence, and spend earned credits on temporary repairs.
 
-The v0.8.0 implementation adds deterministic archetype/objective solvability coverage and
-demonstration seeds on top of the v0.7.0 in-game guidance, persistent status, readable action metadata,
-Log filtering, repeat-last-action, Help, and safe terminal-size handling to the v0.6.0 run-local
-credit spending through Calibration and Containment
-repairs on top of publication, deterministic evidence grading, the bounded run lifecycle and structured research Notebook with
-deterministic win/failure resolution, terminal lockout, debrief data, and same-seed/new-seed restart flow. See the [v1.0 completion
-contract](docs/V1_COMPLETION_CONTRACT.md) and [v1.0 baseline audit](docs/V1_BASELINE_AUDIT.md).
-See the [demonstration seed guide](docs/DEMONSTRATION_SEEDS.md) for spoiler-free examples.
+The current release-candidate target is `v0.9.0`; the v1.0 scope authority is
+the [completion contract](docs/V1_COMPLETION_CONTRACT.md), supported by the
+[baseline audit](docs/V1_BASELINE_AUDIT.md). See the
+[demonstration seed guide](docs/DEMONSTRATION_SEEDS.md) for spoiler-free
+examples.
 
-## v0.1 Scope
+## Build and run
 
-- Deterministic world generation from seed
-- Deterministic simulation and interventions
-- In-memory runlog with deterministic hash
-- Minimal ratatui terminal UI
-- Acceptance tests for worldgen and replay determinism
+```bash
+cargo run -- 42
+cargo test --offline
+```
 
-## Build, Run, Test
+The optional argument is a decimal `u64` seed. If omitted, the application
+uses seed `42`. A new seed can be entered after a run resolves; whitespace is
+accepted, but negative, empty, mixed, and overflowing values are rejected.
 
-- `cargo run`
-- `cargo test`
+The supported terminal size is at least **80 columns × 24 rows**. Smaller
+terminals show a safe resize message and still accept `q`.
 
-## Determinism
+## Game loop
 
-World generation and simulation are seed-based and deterministic by design.
+Each run begins active with a deterministic world, objective, and 30-action
+budget. Interventions usually advance one simulation tick. Population and
+chemical scans consume one action but do not advance time.
 
-## Archetypes and Legibility
+Objective progress is engine-owned and requires three consecutive qualifying
+evaluations:
 
-- Each seed deterministically maps to an interaction archetype:
-  `UvSensitive`, `NutrientLimited`, `ToxinDriven`, `SymbiosisFragile`,
-  or `DetoxEcosystem`.
-- Archetypes bias which constraints dominate plant outcomes (UV chain,
-  nutrient depletion, toxin pressure, fragile symbiosis, or detox loops).
-- Generated graphs are intentionally sparse (`6..=8` edges) with per-node
-  incoming-degree caps and tiered edge magnitudes (primary, secondary, spice)
-  to keep causal structure readable.
-- Some archetypes may include a deterministic UV-toxin threshold hook
-  (`Burn` or `Create`) for rare nonlinear behavior.
+- `StabilizePlant`: plant population at least 60.
+- `Detox`: toxin concentration at most 15.
+- `PreventCollapse`: plant and bacteria populations both at least 25.
 
-## Run Loop
+A failed evaluation resets the consecutive hold. Completing the objective wins.
+Using the final action without success fails through action exhaustion.
 
-- The app starts with a generated playable world for the selected seed (default `42`).
-- Each run has 30 budget-consuming actions, shown as actions remaining in Lab.
-- In Lab, selecting an intervention and pressing `Enter` applies it through the engine.
-- Every non-scan intervention advances simulation by one tick automatically.
-- Scan interventions capture measurements without advancing time but consume one action.
-- Objective progress is evaluated against true state after every accepted action. `StabilizePlant`
-  requires plant >= 60 for 3 consecutive evaluations; `Detox` requires toxin <= 15 for 3;
-  `PreventCollapse` requires plant and bacteria >= 25 for 3.
-- Completing the objective produces a win. Using all 30 actions without success produces an
-  `ActionBudgetExhausted` failure. Resolved runs reject further simulation actions.
-- Runlog entries capture intervention, measurement data, tick, contamination, and state snapshot.
+## Contamination and instruments
 
-## Contamination
+Contamination is persistent and action-driven:
 
-- Contamination is `Stable` from 0–19, `Compromised` from 20–29, `Critical` from 30–39, and
-  containment is lost at 40.
-- Action costs are: scans/advance time/UV `+0`, nutrient `+1`, toxin `+2`, neutralise toxin `+1`,
-  remove fungus/bacteria `+1`, and sterilise sample `+3`.
-- Stable scans use normal noise, Compromised scans use `1.5x` noise, and Critical scans use
-  `2.25x` noise. Contamination changes measurement fidelity only; true state and objectives are
-  unaffected.
-- Objective completion takes precedence over containment loss, which takes precedence over budget
-  failure.
-- The debrief reports final and peak contamination, classification, and scans taken while
-  Compromised or Critical.
+| Action | Base contamination |
+| --- | ---: |
+| scans, Advance Time, UV changes | 0 |
+| Add nutrient | +1 |
+| Add toxin | +2 |
+| Neutralise toxin, remove fungus/bacteria | +1 |
+| Sterilise sample | +3 |
 
-## Publication and Research Credits
+Levels are Stable `0–19`, Compromised `20–29`, Critical `30–39`, and Lost at
+`40`. Compromised scans use `1.5×` noise and Critical scans use `2.25×` noise.
+Contamination does not alter true state or objective evaluation. An objective
+win takes precedence if it occurs on the same action as containment loss.
 
-- Publish a selected Notebook hypothesis with `p`. Publication costs one action, no tick, and no
-  contamination. Confirmation is required, and publication is permanent for that hypothesis.
-- A run allows at most 4 publications. Each hypothesis can be published once; published hypotheses
-  cannot be edited or removed.
-- Evidence uses only direct cause interventions followed by the required population or chemical
-  scan in the current run. UV is observed from its displayed state.
-- Results are `Unsupported`, `Weak`, `Moderate`, or `Strong`. Awards are respectively `0`, `1`, `2`,
-  or `3` credits. Credits are run-local and capped at 12.
-- Publication records and rationale appear in the Notebook, the separate Log publication section,
-  and the terminal debrief. They remain separate from the deterministic gameplay event hash.
+## Notebook, publication, and repairs
 
-## Repairs
+The Notebook stores up to eight templated hypotheses: `X increases Y` or
+`X decreases Y`, using six observable variables. Notebook edits consume no
+actions, ticks, contamination, or RNG and are active-run only.
 
-- The Repairs tab (`5`) spends current-run publication credits; purchases consume no action, tick,
-  contamination, or RNG and are recorded separately from gameplay events.
-- Calibration has levels 0–2 and costs 2 credits, then 4 credits. Its future scan-noise multiplier
-  is `1.00x`, `0.80x`, then `0.60x`, composed with contamination noise.
-- Containment has levels 0–2 and costs 2 credits, then 4 credits. It reduces future action
-  contamination costs by `0`, `1`, then `2` using saturating subtraction.
-- Repairs affect only measurements or actions accepted after purchase; prior events and measurements
-  are not rewritten. The wallet shows earned, spent, and available credits, and the debrief/log show
-  purchase history. Credits and repairs reset on restart.
-- v0.6 gameplay events add base, reduced, and effective contamination-cost metadata plus calibration
-  measurement metadata; this is an intentional additive event schema change. Equal runs still produce
-  equal hashes, while publication and repair records remain outside the gameplay event hash.
+Publishing a hypothesis costs one action and is permanent. It uses only direct
+intervention evidence followed by the appropriate scan. Results are
+`Unsupported`, `Weak`, `Moderate`, or `Strong`, awarding `0`, `1`, `2`, or `3`
+run-local credits. There are at most four publications and twelve credits.
 
-## Debrief and Restart
+The Repairs view spends current-run credits without consuming actions, ticks,
+contamination, or RNG:
 
-- A resolved run shows its outcome, final state, objective progress, action usage, and deterministic
-  run-event hash.
-- `r`: restart with the same seed.
-- `n`: enter a new decimal `u64` seed, then press `Enter`; `Esc` cancels seed entry.
-- `q`: quit from the active run or debrief.
+- Calibration levels 0–2 cost 2 then 4 credits and reduce future scan noise to
+  `1.00×`, `0.80×`, then `0.60×`.
+- Containment levels 0–2 cost 2 then 4 credits and reduce future contamination
+  costs by `0`, `1`, then `2`.
 
-## Notebook
+Repairs affect only future operations. Credits, Notebook state, publications,
+and repairs reset on restart.
 
-- The `Notebook` records templated causal theories in the form `X increases Y` or `X decreases Y`.
-- Only Plant, Fungus, Bacteria, Toxin, Nutrient, and UV are available as observable variables.
-- A run holds at most 8 hypotheses. Add, edit, and remove operations preserve insertion order and
-  use stable run-local IDs.
-- Notebook operations consume no action, tick, contamination, RNG, or runlog event.
-- Editing is available only during an active run. Resolved-run Notebook data remains visible and
-  read-only, and the final ordered snapshot appears in the debrief.
-- Hypotheses are recorded theory until publication; publication evaluates current-run evidence, but
-  correctness is not exposed beyond the evidence result and rationale.
+## Tabs and controls
 
-## Tabs
+- `1` Lab: Up/Down select an action, `Enter` applies it, `x` repeats the last
+  accepted intervention or scan.
+- `2` Journal: Up/Down, `j`/`k`, and PageUp/PageDown scroll guidance.
+- `3` Log: Up/Down scroll; `a` all, `i` interventions, `m` measurements,
+  `p` publications, `r` repairs.
+- `4` Notebook: `a` add, `e` edit, `d` delete, `p` publish; Enter confirms and
+  Esc cancels.
+- `5` Repairs: Up/Down select a track, Enter requests purchase confirmation,
+  Esc cancels.
+- `?` opens the complete in-game control reference.
+- `q` quits from active play, views, dialogs, and the debrief.
+- After resolution, `r` restarts the same seed and `n` opens new-seed entry.
 
-- `Lab`: live status, world metrics with deltas, and intervention actions
-- `Journal`: scenario text, objective narrative, rules, and controls
-- `Log`: chronological run events
-- `Notebook`: structured hypotheses and constrained add/edit/remove controls
-- `Repairs`: run-local Calibration and Containment purchases with numeric previews
+Resolved runs lock simulation, Notebook, publication, and repair mutations.
+The debrief remains readable and includes outcome, final state, hashes,
+research records, and repair history.
 
-## In-game guidance and controls
+## Determinism and replay
 
-- The Journal explains the selected objective, consecutive progress/reset rules, the 30-action
-  pressure, contamination thresholds, Notebook/publication loop, credits, repairs, restart, and quit.
-- Lab action details show the action cost, whether time advances, measurement category, and effective
-  contamination cost after Containment repairs. Scan results show measured values and contamination,
-  Calibration, and total noise multipliers.
-- The Log supports filters: `a` all, `i` interventions, `m` measurements, `p` publications, and `r`
-  repairs. Filtering changes only the display; stored records and hashes are unchanged.
-- In Lab, `x` repeats the last accepted intervention or scan through the normal engine path.
-- `?` opens the complete in-game control reference. A minimum terminal size of 80 columns by 24 rows
-  is supported; smaller terminals show a resize message and still accept `q`.
+World generation, simulation RNG, run events, and complete operation sequences
+are deterministic for the same seed and inputs.
 
-## Objective Notes
+`hash_events` is the gameplay event hash. It covers the append-only simulation
+events and intentionally excludes Notebook, publication, and repair records.
+The separate `verification_hash` uses the schema tag
+`xenolab-verification-v1` and hashes, in stable serialized order, the seed,
+recipe hash, gameplay event hash, Notebook, publications, wallet values,
+repair levels and purchases, run state, and debrief. It verifies the complete
+outcome-relevant in-memory run history.
 
-- The seed selects one of three objective descriptions: `StabilizePlant`, `Detox`, or
-  `PreventCollapse`.
-- Objective progress is engine-owned and shown in Lab as consecutive qualifying evaluations.
-- A resolved objective or exhausted action budget moves the UI to the debrief.
+WP08 provides typed in-memory replay operations and verification tests. It does
+not provide replay files, import/export, persistence, or a verifier command.
 
-## Controls
+## Current limitations
 
-- `q`: quit
-- `1`: lab view
-- `2`: journal view
-- `3`: log view
-- `4`: Notebook view
-- `5`: Repairs view
-- `Up`/`Down`: navigate Lab actions, scroll Journal, or scroll Log
-- `j`/`k`: scroll Journal
-- `PageUp`/`PageDown`: fast-scroll Journal
-- `Enter`: apply selected intervention in Lab
-- `a`: add a Notebook hypothesis
-- `e`: edit the selected Notebook hypothesis
-- `d`: delete the selected Notebook hypothesis, then press `Enter` to confirm
-- `Esc`: cancel Notebook editing or deletion
-- `p`: publish the selected unpublished hypothesis, then press `Enter` to confirm
-- `5`: open Repairs; `Up`/`Down` select a track and `Enter` requests purchase confirmation
-- `r`: restart same seed after resolution
-- `n`: enter a new seed after resolution
+- Credits have no use beyond the two run-local repair tracks.
+- There is no save/load, replay file format, campaign progression, or account
+  progression.
+- Objective and evidence balance remains subject to later balance review;
+  deterministic corpus results are documented by WP07.
 
-## Structure Overview
+## Project structure
 
-- `src/engine`: core simulation data model and runtime
-- `src/worldgen`: recipe generation and acceptance harness
-- `src/ui`: minimal ratatui application shell
-- `tests/`: acceptance and determinism integration tests
+- `src/engine`: simulation, lifecycle, research records, replay, and hashes.
+- `src/worldgen`: deterministic recipes, archetypes, and acceptance checks.
+- `src/ui`: ratatui application, views, controls, and terminal handling.
+- `tests`: lifecycle, determinism, worldgen, research, UI, solvability, and
+  replay acceptance coverage.
