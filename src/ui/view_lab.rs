@@ -64,6 +64,16 @@ fn render_main_columns(f: &mut Frame, app: &App, area: Rect) {
             app.action_limit()
         )),
         ListItem::new(format!(
+            "Credits: {} / {}",
+            app.simulator.research_credits(),
+            app.simulator.max_research_credits()
+        )),
+        ListItem::new(format!(
+            "Publications: {} / {}",
+            app.simulator.publications().len(),
+            app.simulator.publication_limit()
+        )),
+        ListItem::new(format!(
             "Contamination: {:.0} / 40 ({})",
             app.simulator.contamination(),
             app.contamination_level().label()

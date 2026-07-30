@@ -27,10 +27,11 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
                 " "
             };
             lines.push(format!(
-                "{marker} {}. [{}] {}",
+                "{marker} {}. [{}] {}\n     {}",
                 index + 1,
                 hypothesis.id.0,
-                hypothesis.sentence()
+                hypothesis.sentence(),
+                publication_status(app, hypothesis.id)
             ));
         }
     }
@@ -47,11 +48,23 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             "Delete hypothesis [{}]? Enter confirm | Esc cancel",
             id.0
         ));
+    } else if let Some(id) = app.notebook_publish_confirmation {
+        lines.push(format!(
+            "Publish hypothesis [{}]? Costs 1 action, is permanent, and locks editing. Enter confirm | Esc cancel",
+            id.0
+        ));
     } else if app.is_resolved() {
         lines.push("Run resolved: Notebook is read-only.".to_string());
     } else {
-        lines.push("a add | e edit selected | d delete selected".to_string());
+        lines.push("a add | e edit selected | d delete selected | p publish selected".to_string());
         lines.push("Notebook edits consume no actions, ticks, or contamination.".to_string());
+        lines.push(format!(
+            "Publications: {} / {} | Research credits: {} / {}",
+            app.simulator.publications().len(),
+            app.simulator.publication_limit(),
+            app.simulator.research_credits(),
+            app.simulator.max_research_credits()
+        ));
     }
     if !app.status_message.is_empty() {
         lines.push(format!("Status: {}", app.status_message));
@@ -92,4 +105,16 @@ fn field_marker(current: NotebookField, field: NotebookField) -> &'static str {
     } else {
         ""
     }
+}
+
+fn publication_status(app: &App, id: crate::engine::notebook::HypothesisId) -> String {
+    let Some(publication) = app.simulator.publication_for(id) else {
+        return "Unpublished".to_string();
+    };
+    format!(
+        "{} — +{} credits | {}",
+        publication.evidence_strength.label(),
+        publication.credits_awarded,
+        publication.evidence_summary.rationale.text()
+    )
 }

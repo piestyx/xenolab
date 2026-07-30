@@ -102,6 +102,8 @@ pub enum NotebookError {
     RunResolved,
     #[error("hypothesis was not found")]
     HypothesisNotFound,
+    #[error("published hypotheses cannot be edited or removed")]
+    HypothesisAlreadyPublished,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

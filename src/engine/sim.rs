@@ -11,6 +11,9 @@ use crate::engine::measurement::{sample_standard_normal, scan_chemicals, scan_po
 use crate::engine::notebook::{
     HypothesisDirection, HypothesisId, Notebook, NotebookError, ObservableVariable,
 };
+use crate::engine::publication::{
+    evaluate, Publication, PublicationError, MAX_RESEARCH_CREDITS, PUBLICATION_LIMIT,
+};
 use crate::engine::run::{RunDebrief, RunFailure, RunState, RunStatus, ACTION_LIMIT};
 use crate::engine::runlog::{RunEvent, RunLog};
 use crate::engine::world::{UvToxinThresholdMode, WorldRecipe, WorldState};
@@ -52,6 +55,9 @@ pub struct Simulator {
     rng: ChaCha8Rng,
     runlog: RunLog,
     notebook: Notebook,
+    publications: Vec<Publication>,
+    next_publication_id: u32,
+    research_credits: u32,
     run: RunState,
     debrief: Option<RunDebrief>,
     lifecycle_enabled: bool,
@@ -104,6 +110,9 @@ impl Simulator {
             rng: ChaCha8Rng::seed_from_u64(rng_seed),
             runlog: RunLog::default(),
             notebook: Notebook::new(),
+            publications: Vec::new(),
+            next_publication_id: 1,
+            research_credits: 0,
             run: RunState::with_action_limit(seed, objective, action_limit),
             debrief: None,
             lifecycle_enabled,
@@ -158,6 +167,28 @@ impl Simulator {
         &self.notebook
     }
 
+    pub fn publications(&self) -> &[Publication] {
+        &self.publications
+    }
+
+    pub fn research_credits(&self) -> u32 {
+        self.research_credits
+    }
+
+    pub fn max_research_credits(&self) -> u32 {
+        MAX_RESEARCH_CREDITS
+    }
+
+    pub fn publication_limit(&self) -> u32 {
+        PUBLICATION_LIMIT
+    }
+
+    pub fn publication_for(&self, id: HypothesisId) -> Option<&Publication> {
+        self.publications
+            .iter()
+            .find(|publication| publication.hypothesis_id == id)
+    }
+
     pub fn add_hypothesis(
         &mut self,
         cause: ObservableVariable,
@@ -165,6 +196,7 @@ impl Simulator {
         effect: ObservableVariable,
     ) -> Result<HypothesisId, NotebookError> {
         self.ensure_notebook_editable()?;
+        self.ensure_hypothesis_unpublished_for_edit(None, cause, direction, effect)?;
         self.notebook.add(cause, direction, effect)
     }
 
@@ -176,12 +208,61 @@ impl Simulator {
         effect: ObservableVariable,
     ) -> Result<(), NotebookError> {
         self.ensure_notebook_editable()?;
+        self.ensure_hypothesis_unpublished_for_edit(Some(id), cause, direction, effect)?;
         self.notebook.edit(id, cause, direction, effect)
     }
 
     pub fn remove_hypothesis(&mut self, id: HypothesisId) -> Result<(), NotebookError> {
         self.ensure_notebook_editable()?;
+        if self.publication_for(id).is_some() {
+            return Err(NotebookError::HypothesisAlreadyPublished);
+        }
         self.notebook.remove(id)
+    }
+
+    pub fn publish_hypothesis(
+        &mut self,
+        id: HypothesisId,
+    ) -> Result<Publication, PublicationError> {
+        if self.lifecycle_enabled && self.run.status != RunStatus::Active {
+            return Err(PublicationError::RunResolved);
+        }
+        if self.publications.len() as u32 >= PUBLICATION_LIMIT {
+            return Err(PublicationError::PublicationLimitReached);
+        }
+        if self.publication_for(id).is_some() {
+            return Err(PublicationError::HypothesisAlreadyPublished);
+        }
+        let hypothesis = self
+            .notebook
+            .hypotheses()
+            .iter()
+            .find(|hypothesis| hypothesis.id == id)
+            .copied()
+            .ok_or(PublicationError::HypothesisNotFound)?;
+        let (evidence_strength, evidence_summary) =
+            evaluate(hypothesis, &self.recipe, &self.runlog.events);
+        let publication = Publication {
+            id: self.next_publication_id,
+            hypothesis_id: id,
+            hypothesis,
+            credits_awarded: evidence_strength.credits(),
+            evidence_strength,
+            evidence_summary,
+            action_number: self.run.actions_used.saturating_add(1),
+            tick: self.tick,
+        };
+        self.next_publication_id = self.next_publication_id.saturating_add(1);
+        self.research_credits = self
+            .research_credits
+            .saturating_add(publication.credits_awarded)
+            .min(MAX_RESEARCH_CREDITS);
+        self.publications.push(publication.clone());
+        if self.lifecycle_enabled {
+            self.run.actions_used = self.run.actions_used.saturating_add(1);
+            self.resolve_after_action(false);
+        }
+        Ok(publication)
     }
 
     fn ensure_notebook_editable(&self) -> Result<(), NotebookError> {
@@ -190,6 +271,21 @@ impl Simulator {
         } else {
             Ok(())
         }
+    }
+
+    fn ensure_hypothesis_unpublished_for_edit(
+        &self,
+        id: Option<HypothesisId>,
+        _cause: ObservableVariable,
+        _direction: HypothesisDirection,
+        _effect: ObservableVariable,
+    ) -> Result<(), NotebookError> {
+        if let Some(id) = id {
+            if self.publication_for(id).is_some() {
+                return Err(NotebookError::HypothesisAlreadyPublished);
+            }
+        }
+        Ok(())
     }
 
     pub fn apply(
@@ -234,18 +330,22 @@ impl Simulator {
         if self.lifecycle_enabled {
             self.run.actions_used += 1;
             self.update_objective_progress();
-            if self.run.objective_progress.is_complete() {
-                self.run.status = RunStatus::Won;
-            } else if self.contamination >= CONTAINMENT_LOST_THRESHOLD {
-                self.run.status = RunStatus::Failed(RunFailure::ContainmentLost);
-            } else if self.run.actions_used >= self.run.action_limit {
-                self.run.status = RunStatus::Failed(RunFailure::ActionBudgetExhausted);
-            }
-            if self.run.status != RunStatus::Active {
-                self.debrief = Some(self.build_debrief());
-            }
+            self.resolve_after_action(true);
         }
         Ok(event)
+    }
+
+    fn resolve_after_action(&mut self, objective_evaluated: bool) {
+        if objective_evaluated && self.run.objective_progress.is_complete() {
+            self.run.status = RunStatus::Won;
+        } else if self.contamination >= CONTAINMENT_LOST_THRESHOLD {
+            self.run.status = RunStatus::Failed(RunFailure::ContainmentLost);
+        } else if self.run.actions_used >= self.run.action_limit {
+            self.run.status = RunStatus::Failed(RunFailure::ActionBudgetExhausted);
+        }
+        if self.run.status != RunStatus::Active {
+            self.debrief = Some(self.build_debrief());
+        }
     }
 
     fn update_objective_progress(&mut self) {
@@ -285,6 +385,8 @@ impl Simulator {
                 .to_hex()
                 .to_string(),
             self.notebook.hypotheses().to_vec(),
+            self.publications.clone(),
+            self.research_credits,
         )
     }
 

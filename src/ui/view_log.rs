@@ -5,13 +5,9 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use crate::ui::app::App;
 
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
-    let events = app.simulator.events();
-    let viewport_height = area.height.saturating_sub(2) as usize;
-    let max_start = events.len().saturating_sub(viewport_height);
-    let start = app.log_scroll.min(max_start);
-    let end = (start + viewport_height).min(events.len());
-
-    let lines: Vec<String> = events[start..end]
+    let event_lines: Vec<String> = app
+        .simulator
+        .events()
         .iter()
         .map(|event| {
             format!(
@@ -23,12 +19,36 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             )
         })
         .collect();
-
-    let body = if lines.is_empty() {
-        String::from("Runlog is empty.")
+    let mut all_lines = vec!["Gameplay events".to_string()];
+    if event_lines.is_empty() {
+        all_lines.push("Runlog is empty.".to_string());
     } else {
-        lines.join("\n")
-    };
+        all_lines.extend(event_lines);
+    }
+    all_lines.push(String::new());
+    all_lines.push("Publications (separate from RunEvent hash)".to_string());
+    if app.simulator.publications().is_empty() {
+        all_lines.push("No publications.".to_string());
+    } else {
+        for publication in app.simulator.publications() {
+            all_lines.push(format!(
+                "action={:<3} [{}] {} — +{} credits",
+                publication.action_number,
+                publication.evidence_strength.label(),
+                publication.hypothesis.sentence(),
+                publication.credits_awarded,
+            ));
+            all_lines.push(format!(
+                "  {}",
+                publication.evidence_summary.rationale.text()
+            ));
+        }
+    }
+    let viewport_height = area.height.saturating_sub(2) as usize;
+    let max_start = all_lines.len().saturating_sub(viewport_height);
+    let start = app.log_scroll.min(max_start);
+    let end = (start + viewport_height).min(all_lines.len());
+    let body = all_lines[start..end].join("\n");
 
     let paragraph = Paragraph::new(body).block(
         Block::default()

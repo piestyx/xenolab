@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::engine::contamination::ContaminationLevel;
 use crate::engine::ids::{NodeId, ObjectiveId};
 use crate::engine::notebook::Hypothesis;
+use crate::engine::publication::{Publication, PUBLICATION_LIMIT};
 use crate::engine::world::WorldState;
 
 pub const ACTION_LIMIT: u32 = 30;
@@ -99,6 +100,10 @@ pub struct RunDebrief {
     pub objective_progress: ObjectiveProgress,
     pub event_hash: String,
     pub notebook: Vec<Hypothesis>,
+    pub publications: Vec<Publication>,
+    pub research_credits: u32,
+    pub publications_used: u32,
+    pub publication_limit: u32,
 }
 
 impl RunDebrief {
@@ -113,6 +118,8 @@ impl RunDebrief {
         critical_scans: u32,
         event_hash: String,
         notebook: Vec<Hypothesis>,
+        publications: Vec<Publication>,
+        research_credits: u32,
     ) -> Self {
         Self {
             seed: run.seed,
@@ -138,6 +145,10 @@ impl RunDebrief {
             objective_progress: run.objective_progress,
             event_hash,
             notebook,
+            publications_used: publications.len() as u32,
+            publication_limit: PUBLICATION_LIMIT,
+            publications,
+            research_credits,
         }
     }
 }

@@ -9,6 +9,7 @@ use crate::engine::ids::{NodeId, ObjectiveId};
 use crate::engine::interventions::Intervention;
 use crate::engine::measurement::MeasurementRecord;
 use crate::engine::notebook::{HypothesisDirection, HypothesisId, ObservableVariable};
+use crate::engine::publication::PublicationError;
 use crate::engine::run::{RunStatus, ACTION_LIMIT};
 use crate::engine::sim::{SimError, Simulator};
 use crate::engine::world::WorldState;
@@ -133,6 +134,7 @@ pub struct App {
     pub notebook_selected: usize,
     pub notebook_editor: Option<NotebookEditor>,
     pub notebook_delete_confirmation: Option<HypothesisId>,
+    pub notebook_publish_confirmation: Option<HypothesisId>,
 }
 
 impl App {
@@ -156,6 +158,7 @@ impl App {
             notebook_selected: 0,
             notebook_editor: None,
             notebook_delete_confirmation: None,
+            notebook_publish_confirmation: None,
         }
     }
 
@@ -169,7 +172,7 @@ impl App {
         let tabs = Tabs::new(titles)
             .block(
                 Block::default()
-                    .title("xenolab v0.4.0")
+                    .title("xenolab v0.5.0")
                     .borders(Borders::ALL),
             )
             .select(self.active_view.as_index())
@@ -222,6 +225,14 @@ impl App {
             }
             return Ok(());
         }
+        if self.notebook_publish_confirmation.is_some() {
+            match key.code {
+                KeyCode::Enter => self.confirm_notebook_publish(),
+                KeyCode::Esc => self.notebook_publish_confirmation = None,
+                _ => {}
+            }
+            return Ok(());
+        }
 
         match key.code {
             KeyCode::Char('q') => {
@@ -239,6 +250,9 @@ impl App {
             }
             KeyCode::Char('d') if self.active_view == ActiveView::Notebook => {
                 self.begin_notebook_delete();
+            }
+            KeyCode::Char('p') if self.active_view == ActiveView::Notebook => {
+                self.begin_notebook_publish();
             }
             KeyCode::Char('r') if self.is_resolved() => self.restart_same_seed(),
             KeyCode::Char('n') if self.is_resolved() => self.begin_new_seed(),
@@ -531,6 +545,47 @@ impl App {
         }
     }
 
+    fn begin_notebook_publish(&mut self) {
+        if self.is_resolved() {
+            self.status_message = "Publication is unavailable after run resolution".to_string();
+            return;
+        }
+        let Some(hypothesis) = self
+            .simulator
+            .notebook()
+            .hypotheses()
+            .get(self.notebook_selected)
+        else {
+            self.status_message = "No hypothesis selected".to_string();
+            return;
+        };
+        if self.simulator.publication_for(hypothesis.id).is_some() {
+            self.status_message = "This hypothesis has already been published".to_string();
+            return;
+        }
+        if self.simulator.publications().len() as u32 >= self.simulator.publication_limit() {
+            self.status_message = "Publication limit reached".to_string();
+            return;
+        }
+        self.notebook_publish_confirmation = Some(hypothesis.id);
+    }
+
+    fn confirm_notebook_publish(&mut self) {
+        let Some(id) = self.notebook_publish_confirmation.take() else {
+            return;
+        };
+        match self.simulator.publish_hypothesis(id) {
+            Ok(publication) => {
+                self.status_message = format!(
+                    "Published: {} — +{} credits; costs 1 action",
+                    publication.evidence_strength.label(),
+                    publication.credits_awarded
+                );
+            }
+            Err(error) => self.status_message = publication_error_text(error),
+        }
+    }
+
     fn confirm_notebook_delete(&mut self) {
         let Some(id) = self.notebook_delete_confirmation.take() else {
             return;
@@ -697,4 +752,8 @@ fn previous_notebook_field(field: NotebookField) -> NotebookField {
         NotebookField::Direction => NotebookField::Cause,
         NotebookField::Effect => NotebookField::Direction,
     }
+}
+
+fn publication_error_text(error: PublicationError) -> String {
+    error.to_string()
 }

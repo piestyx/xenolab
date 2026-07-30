@@ -4,7 +4,8 @@
 baseline is tagged `v0.1.4`: it generates a deterministic causal micro-ecosystem from a seed,
 lets you intervene in that world, and records run events with deterministic hashing.
 
-The v0.4.0 implementation adds a bounded run lifecycle and structured research Notebook with
+The v0.5.0 implementation adds publication, deterministic evidence grading, and run-local
+research credits on top of the bounded run lifecycle and structured research Notebook with
 deterministic win/failure resolution, terminal lockout, debrief data, and same-seed/new-seed restart flow. See the [v1.0 completion
 contract](docs/V1_COMPLETION_CONTRACT.md) and [v1.0 baseline audit](docs/V1_BASELINE_AUDIT.md).
 
@@ -66,6 +67,19 @@ World generation and simulation are seed-based and deterministic by design.
 - The debrief reports final and peak contamination, classification, and scans taken while
   Compromised or Critical.
 
+## Publication and Research Credits
+
+- Publish a selected Notebook hypothesis with `p`. Publication costs one action, no tick, and no
+  contamination. Confirmation is required, and publication is permanent for that hypothesis.
+- A run allows at most 4 publications. Each hypothesis can be published once; published hypotheses
+  cannot be edited or removed.
+- Evidence uses only direct cause interventions followed by the required population or chemical
+  scan in the current run. UV is observed from its displayed state.
+- Results are `Unsupported`, `Weak`, `Moderate`, or `Strong`. Awards are respectively `0`, `1`, `2`,
+  or `3` credits. Credits are run-local and capped at 12; they cannot yet be spent.
+- Publication records and rationale appear in the Notebook, the separate Log publication section,
+  and the terminal debrief. They remain separate from the deterministic gameplay event hash.
+
 ## Debrief and Restart
 
 - A resolved run shows its outcome, final state, objective progress, action usage, and deterministic
@@ -114,6 +128,7 @@ World generation and simulation are seed-based and deterministic by design.
 - `e`: edit the selected Notebook hypothesis
 - `d`: delete the selected Notebook hypothesis, then press `Enter` to confirm
 - `Esc`: cancel Notebook editing or deletion
+- `p`: publish the selected unpublished hypothesis, then press `Enter` to confirm
 - `r`: restart same seed after resolution
 - `n`: enter a new seed after resolution
 
