@@ -237,7 +237,7 @@ impl App {
         let tabs = Tabs::new(titles)
             .block(
                 Block::default()
-                    .title("xenolab v0.7.0")
+                    .title("xenolab v0.8.0")
                     .borders(Borders::ALL),
             )
             .select(self.active_view.as_index())

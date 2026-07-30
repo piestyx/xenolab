@@ -4,12 +4,14 @@
 baseline is tagged `v0.1.4`: it generates a deterministic causal micro-ecosystem from a seed,
 lets you intervene in that world, and records run events with deterministic hashing.
 
-The v0.7.0 implementation adds in-game guidance, persistent status, readable action metadata,
+The v0.8.0 implementation adds deterministic archetype/objective solvability coverage and
+demonstration seeds on top of the v0.7.0 in-game guidance, persistent status, readable action metadata,
 Log filtering, repeat-last-action, Help, and safe terminal-size handling to the v0.6.0 run-local
 credit spending through Calibration and Containment
 repairs on top of publication, deterministic evidence grading, the bounded run lifecycle and structured research Notebook with
 deterministic win/failure resolution, terminal lockout, debrief data, and same-seed/new-seed restart flow. See the [v1.0 completion
 contract](docs/V1_COMPLETION_CONTRACT.md) and [v1.0 baseline audit](docs/V1_BASELINE_AUDIT.md).
+See the [demonstration seed guide](docs/DEMONSTRATION_SEEDS.md) for spoiler-free examples.
 
 ## v0.1 Scope
 
