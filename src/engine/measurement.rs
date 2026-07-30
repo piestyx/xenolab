@@ -31,6 +31,8 @@ pub struct MeasurementRecord {
     pub base_sigma: f32,
     pub effective_sigma: f32,
     pub contamination_multiplier: f32,
+    pub calibration_multiplier: f32,
+    pub total_multiplier: f32,
     pub contamination_level: ContaminationLevel,
 }
 
@@ -40,6 +42,16 @@ pub fn scan_population(
     tick_index: u32,
     contamination: f32,
 ) -> Vec<MeasurementRecord> {
+    scan_population_with_calibration(state, rng, tick_index, contamination, 1.0)
+}
+
+pub fn scan_population_with_calibration(
+    state: &WorldState,
+    rng: &mut ChaCha8Rng,
+    tick_index: u32,
+    contamination: f32,
+    calibration_multiplier: f32,
+) -> Vec<MeasurementRecord> {
     let nodes = [NodeId::PlantPop, NodeId::FungusLoad, NodeId::BacteriaPop];
     measure_nodes(
         state,
@@ -47,6 +59,7 @@ pub fn scan_population(
         tick_index,
         Instrument::BioScanner,
         contamination,
+        calibration_multiplier,
         &nodes,
     )
 }
@@ -57,6 +70,16 @@ pub fn scan_chemicals(
     tick_index: u32,
     contamination: f32,
 ) -> Vec<MeasurementRecord> {
+    scan_chemicals_with_calibration(state, rng, tick_index, contamination, 1.0)
+}
+
+pub fn scan_chemicals_with_calibration(
+    state: &WorldState,
+    rng: &mut ChaCha8Rng,
+    tick_index: u32,
+    contamination: f32,
+    calibration_multiplier: f32,
+) -> Vec<MeasurementRecord> {
     let nodes = [NodeId::Toxin, NodeId::Nutrient];
     measure_nodes(
         state,
@@ -64,6 +87,7 @@ pub fn scan_chemicals(
         tick_index,
         Instrument::Spectrometer,
         contamination,
+        calibration_multiplier,
         &nodes,
     )
 }
@@ -74,12 +98,14 @@ fn measure_nodes(
     tick_index: u32,
     instrument: Instrument,
     contamination: f32,
+    calibration_multiplier: f32,
     nodes: &[NodeId],
 ) -> Vec<MeasurementRecord> {
     let sigma = instrument.sigma();
     let contamination_level = ContaminationLevel::from_value(contamination);
     let contamination_multiplier = contamination_level.noise_multiplier();
-    let effective_sigma = sigma * contamination_multiplier;
+    let total_multiplier = contamination_multiplier * calibration_multiplier;
+    let effective_sigma = sigma * total_multiplier;
     let mut out = Vec::with_capacity(nodes.len());
     for node in nodes {
         let true_value = state.get(*node);
@@ -93,6 +119,8 @@ fn measure_nodes(
             base_sigma: sigma,
             effective_sigma,
             contamination_multiplier,
+            calibration_multiplier,
+            total_multiplier,
             contamination_level,
         });
     }

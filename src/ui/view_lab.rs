@@ -64,9 +64,15 @@ fn render_main_columns(f: &mut Frame, app: &App, area: Rect) {
             app.action_limit()
         )),
         ListItem::new(format!(
-            "Credits: {} / {}",
-            app.simulator.research_credits(),
-            app.simulator.max_research_credits()
+            "Credits: {} available (earned {}, spent {})",
+            app.simulator.credits_available(),
+            app.simulator.credits_earned(),
+            app.simulator.credits_spent()
+        )),
+        ListItem::new(format!(
+            "Repairs: Calibration L{} | Containment L{}",
+            app.simulator.calibration_level().level(),
+            app.simulator.containment_level().level()
         )),
         ListItem::new(format!(
             "Publications: {} / {}",
@@ -79,8 +85,9 @@ fn render_main_columns(f: &mut Frame, app: &App, area: Rect) {
             app.contamination_level().label()
         )),
         ListItem::new(format!(
-            "Scan noise: {:.2}x",
-            app.contamination_noise_multiplier()
+            "Scan noise: {:.2}x (cal ×{:.2})",
+            app.contamination_noise_multiplier() * app.simulator.calibration_multiplier(),
+            app.simulator.calibration_multiplier()
         )),
         ListItem::new(format!(
             "Next threshold: {}",
@@ -145,11 +152,15 @@ fn render_main_columns(f: &mut Frame, app: &App, area: Rect) {
         .actions()
         .iter()
         .map(|action| {
-            ListItem::new(format!(
-                "{} c+{}",
-                action.label(),
-                action.contamination_cost()
-            ))
+            let intervention = action.to_intervention();
+            let base = intervention.contamination_cost();
+            let effective = app.simulator.effective_contamination_cost(&intervention);
+            let cost = if base == effective {
+                format!("c+{effective}")
+            } else {
+                format!("c+{effective} (base +{base})")
+            };
+            ListItem::new(format!("{} {cost}", action.label()))
         })
         .collect();
     let list = List::new(items)

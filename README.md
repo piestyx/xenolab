@@ -4,8 +4,8 @@
 baseline is tagged `v0.1.4`: it generates a deterministic causal micro-ecosystem from a seed,
 lets you intervene in that world, and records run events with deterministic hashing.
 
-The v0.5.0 implementation adds publication, deterministic evidence grading, and run-local
-research credits on top of the bounded run lifecycle and structured research Notebook with
+The v0.6.0 implementation adds run-local credit spending through Calibration and Containment
+repairs on top of publication, deterministic evidence grading, the bounded run lifecycle and structured research Notebook with
 deterministic win/failure resolution, terminal lockout, debrief data, and same-seed/new-seed restart flow. See the [v1.0 completion
 contract](docs/V1_COMPLETION_CONTRACT.md) and [v1.0 baseline audit](docs/V1_BASELINE_AUDIT.md).
 
@@ -76,9 +76,24 @@ World generation and simulation are seed-based and deterministic by design.
 - Evidence uses only direct cause interventions followed by the required population or chemical
   scan in the current run. UV is observed from its displayed state.
 - Results are `Unsupported`, `Weak`, `Moderate`, or `Strong`. Awards are respectively `0`, `1`, `2`,
-  or `3` credits. Credits are run-local and capped at 12; they cannot yet be spent.
+  or `3` credits. Credits are run-local and capped at 12.
 - Publication records and rationale appear in the Notebook, the separate Log publication section,
   and the terminal debrief. They remain separate from the deterministic gameplay event hash.
+
+## Repairs
+
+- The Repairs tab (`5`) spends current-run publication credits; purchases consume no action, tick,
+  contamination, or RNG and are recorded separately from gameplay events.
+- Calibration has levels 0–2 and costs 2 credits, then 4 credits. Its future scan-noise multiplier
+  is `1.00x`, `0.80x`, then `0.60x`, composed with contamination noise.
+- Containment has levels 0–2 and costs 2 credits, then 4 credits. It reduces future action
+  contamination costs by `0`, `1`, then `2` using saturating subtraction.
+- Repairs affect only measurements or actions accepted after purchase; prior events and measurements
+  are not rewritten. The wallet shows earned, spent, and available credits, and the debrief/log show
+  purchase history. Credits and repairs reset on restart.
+- v0.6 gameplay events add base, reduced, and effective contamination-cost metadata plus calibration
+  measurement metadata; this is an intentional additive event schema change. Equal runs still produce
+  equal hashes, while publication and repair records remain outside the gameplay event hash.
 
 ## Debrief and Restart
 
@@ -97,7 +112,8 @@ World generation and simulation are seed-based and deterministic by design.
 - Notebook operations consume no action, tick, contamination, RNG, or runlog event.
 - Editing is available only during an active run. Resolved-run Notebook data remains visible and
   read-only, and the final ordered snapshot appears in the debrief.
-- Hypotheses are recorded theory only; publishing and evidence evaluation are deferred.
+- Hypotheses are recorded theory until publication; publication evaluates current-run evidence, but
+  correctness is not exposed beyond the evidence result and rationale.
 
 ## Tabs
 
@@ -105,6 +121,7 @@ World generation and simulation are seed-based and deterministic by design.
 - `Journal`: scenario text, objective narrative, rules, and controls
 - `Log`: chronological run events
 - `Notebook`: structured hypotheses and constrained add/edit/remove controls
+- `Repairs`: run-local Calibration and Containment purchases with numeric previews
 
 ## Objective Notes
 
@@ -120,6 +137,7 @@ World generation and simulation are seed-based and deterministic by design.
 - `2`: journal view
 - `3`: log view
 - `4`: Notebook view
+- `5`: Repairs view
 - `Up`/`Down`: navigate Lab actions, scroll Journal, or scroll Log
 - `j`/`k`: scroll Journal
 - `PageUp`/`PageDown`: fast-scroll Journal
@@ -129,6 +147,7 @@ World generation and simulation are seed-based and deterministic by design.
 - `d`: delete the selected Notebook hypothesis, then press `Enter` to confirm
 - `Esc`: cancel Notebook editing or deletion
 - `p`: publish the selected unpublished hypothesis, then press `Enter` to confirm
+- `5`: open Repairs; `Up`/`Down` select a track and `Enter` requests purchase confirmation
 - `r`: restart same seed after resolution
 - `n`: enter a new seed after resolution
 

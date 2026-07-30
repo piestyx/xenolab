@@ -11,6 +11,9 @@ pub struct RunEvent {
     pub measurements: Vec<MeasurementRecord>,
     pub state_snapshot: WorldState,
     pub contamination: f32,
+    pub base_contamination_cost: u32,
+    pub containment_reduction: u32,
+    pub effective_contamination_cost: u32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]

@@ -4,6 +4,7 @@ use crate::engine::contamination::ContaminationLevel;
 use crate::engine::ids::{NodeId, ObjectiveId};
 use crate::engine::notebook::Hypothesis;
 use crate::engine::publication::{Publication, PUBLICATION_LIMIT};
+use crate::engine::repair::{CalibrationLevel, ContainmentLevel, RepairPurchase};
 use crate::engine::world::WorldState;
 
 pub const ACTION_LIMIT: u32 = 30;
@@ -102,8 +103,16 @@ pub struct RunDebrief {
     pub notebook: Vec<Hypothesis>,
     pub publications: Vec<Publication>,
     pub research_credits: u32,
+    pub credits_earned: u32,
+    pub credits_spent: u32,
+    pub credits_remaining: u32,
     pub publications_used: u32,
     pub publication_limit: u32,
+    pub calibration_level: CalibrationLevel,
+    pub containment_level: ContainmentLevel,
+    pub calibration_multiplier: f32,
+    pub containment_reduction: u32,
+    pub repair_purchases: Vec<RepairPurchase>,
 }
 
 impl RunDebrief {
@@ -119,7 +128,12 @@ impl RunDebrief {
         event_hash: String,
         notebook: Vec<Hypothesis>,
         publications: Vec<Publication>,
-        research_credits: u32,
+        credits_earned: u32,
+        credits_spent: u32,
+        credits_remaining: u32,
+        calibration_level: CalibrationLevel,
+        containment_level: ContainmentLevel,
+        repair_purchases: Vec<RepairPurchase>,
     ) -> Self {
         Self {
             seed: run.seed,
@@ -148,7 +162,15 @@ impl RunDebrief {
             publications_used: publications.len() as u32,
             publication_limit: PUBLICATION_LIMIT,
             publications,
-            research_credits,
+            research_credits: credits_remaining,
+            credits_earned,
+            credits_spent,
+            credits_remaining,
+            calibration_level,
+            containment_level,
+            calibration_multiplier: calibration_level.noise_multiplier(),
+            containment_reduction: containment_level.contamination_reduction(),
+            repair_purchases,
         }
     }
 }

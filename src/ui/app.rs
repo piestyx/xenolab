@@ -10,10 +10,11 @@ use crate::engine::interventions::Intervention;
 use crate::engine::measurement::MeasurementRecord;
 use crate::engine::notebook::{HypothesisDirection, HypothesisId, ObservableVariable};
 use crate::engine::publication::PublicationError;
+use crate::engine::repair::{RepairError, RepairTrack};
 use crate::engine::run::{RunStatus, ACTION_LIMIT};
 use crate::engine::sim::{SimError, Simulator};
 use crate::engine::world::WorldState;
-use crate::ui::{view_debrief, view_journal, view_lab, view_log, view_notebook};
+use crate::ui::{view_debrief, view_journal, view_lab, view_log, view_notebook, view_repairs};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveView {
@@ -21,6 +22,7 @@ pub enum ActiveView {
     Journal,
     Log,
     Notebook,
+    Repairs,
 }
 
 impl ActiveView {
@@ -30,6 +32,7 @@ impl ActiveView {
             Self::Journal => 1,
             Self::Log => 2,
             Self::Notebook => 3,
+            Self::Repairs => 4,
         }
     }
 }
@@ -135,6 +138,8 @@ pub struct App {
     pub notebook_editor: Option<NotebookEditor>,
     pub notebook_delete_confirmation: Option<HypothesisId>,
     pub notebook_publish_confirmation: Option<HypothesisId>,
+    pub repair_selected: usize,
+    pub repair_confirmation: Option<RepairTrack>,
 }
 
 impl App {
@@ -159,6 +164,8 @@ impl App {
             notebook_editor: None,
             notebook_delete_confirmation: None,
             notebook_publish_confirmation: None,
+            repair_selected: 0,
+            repair_confirmation: None,
         }
     }
 
@@ -168,11 +175,11 @@ impl App {
             .constraints([Constraint::Length(3), Constraint::Min(0)])
             .split(frame.size());
 
-        let titles = ["1 Lab", "2 Journal", "3 Log", "4 Notebook"];
+        let titles = ["1 Lab", "2 Journal", "3 Log", "4 Notebook", "5 Repairs"];
         let tabs = Tabs::new(titles)
             .block(
                 Block::default()
-                    .title("xenolab v0.5.0")
+                    .title("xenolab v0.6.0")
                     .borders(Borders::ALL),
             )
             .select(self.active_view.as_index())
@@ -184,7 +191,10 @@ impl App {
             );
         frame.render_widget(tabs, chunks[0]);
 
-        if self.is_resolved() && self.active_view != ActiveView::Notebook {
+        if self.is_resolved()
+            && self.active_view != ActiveView::Notebook
+            && self.active_view != ActiveView::Repairs
+        {
             view_debrief::render(frame, chunks[1], self);
         } else {
             match self.active_view {
@@ -192,6 +202,7 @@ impl App {
                 ActiveView::Journal => view_journal::render_journal(frame, self, chunks[1]),
                 ActiveView::Log => view_log::render(frame, chunks[1], self),
                 ActiveView::Notebook => view_notebook::render(frame, chunks[1], self),
+                ActiveView::Repairs => view_repairs::render(frame, chunks[1], self),
             }
         }
 
@@ -233,6 +244,14 @@ impl App {
             }
             return Ok(());
         }
+        if self.repair_confirmation.is_some() {
+            match key.code {
+                KeyCode::Enter => self.confirm_repair_purchase(),
+                KeyCode::Esc => self.repair_confirmation = None,
+                _ => {}
+            }
+            return Ok(());
+        }
 
         match key.code {
             KeyCode::Char('q') => {
@@ -242,6 +261,7 @@ impl App {
             KeyCode::Char('2') => self.active_view = ActiveView::Journal,
             KeyCode::Char('3') => self.active_view = ActiveView::Log,
             KeyCode::Char('4') => self.active_view = ActiveView::Notebook,
+            KeyCode::Char('5') => self.active_view = ActiveView::Repairs,
             KeyCode::Char('a') if self.active_view == ActiveView::Notebook => {
                 self.begin_notebook_add();
             }
@@ -253,6 +273,9 @@ impl App {
             }
             KeyCode::Char('p') if self.active_view == ActiveView::Notebook => {
                 self.begin_notebook_publish();
+            }
+            KeyCode::Enter if self.active_view == ActiveView::Repairs && !self.is_resolved() => {
+                self.begin_repair_purchase();
             }
             KeyCode::Char('r') if self.is_resolved() => self.restart_same_seed(),
             KeyCode::Char('n') if self.is_resolved() => self.begin_new_seed(),
@@ -366,12 +389,15 @@ impl App {
             return "r same seed | n new seed | q quit";
         }
         match self.active_view {
-            ActiveView::Lab => "q quit | 1/2/3 tabs | arrows actions | enter apply | 30 actions",
-            ActiveView::Journal => {
-                "q quit | 1/2/3 tabs | up/down or j/k scroll | pgup/pgdn fast scroll"
+            ActiveView::Lab => {
+                "q quit | 1/2/3/4/5 tabs | arrows actions | enter apply | 30 actions"
             }
-            ActiveView::Log => "q quit | 1/2/3 tabs | up/down scroll log",
-            ActiveView::Notebook => "q quit | 1/2/3/4 tabs | a add | e edit | d delete",
+            ActiveView::Journal => {
+                "q quit | 1/2/3/4/5 tabs | up/down or j/k scroll | pgup/pgdn fast scroll"
+            }
+            ActiveView::Log => "q quit | 1/2/3/4/5 tabs | up/down scroll log",
+            ActiveView::Notebook => "q quit | 1/2/3/4/5 tabs | a add | e edit | d delete",
+            ActiveView::Repairs => "q quit | 1/2/3/4/5 tabs | arrows select | enter purchase",
         }
     }
 
@@ -395,6 +421,9 @@ impl App {
             }
             ActiveView::Notebook => {
                 self.notebook_selected = self.notebook_selected.saturating_sub(1);
+            }
+            ActiveView::Repairs => {
+                self.repair_selected = self.repair_selected.saturating_sub(1);
             }
         }
     }
@@ -423,6 +452,9 @@ impl App {
                 if len > 0 {
                     self.notebook_selected = (self.notebook_selected + 1) % len;
                 }
+            }
+            ActiveView::Repairs => {
+                self.repair_selected = (self.repair_selected + 1) % 2;
             }
         }
     }
@@ -495,6 +527,55 @@ impl App {
             effect: 1,
             field: NotebookField::Cause,
         });
+    }
+
+    fn selected_repair_track(&self) -> RepairTrack {
+        if self.repair_selected == 0 {
+            RepairTrack::Calibration
+        } else {
+            RepairTrack::Containment
+        }
+    }
+
+    fn begin_repair_purchase(&mut self) {
+        if self.is_resolved() {
+            self.status_message = "Repairs are unavailable after run resolution".to_string();
+            return;
+        }
+        let track = self.selected_repair_track();
+        let next_cost = match track {
+            RepairTrack::Calibration => self.simulator.calibration_level().next_cost(),
+            RepairTrack::Containment => self.simulator.containment_level().next_cost(),
+        };
+        let Some(cost) = next_cost else {
+            self.status_message = "Repair track is already at maximum level".to_string();
+            return;
+        };
+        let available = self.simulator.credits_available();
+        if available < cost {
+            self.status_message =
+                format!("Insufficient credits: requires {}, has {}", cost, available);
+            return;
+        }
+        self.repair_confirmation = Some(track);
+    }
+
+    fn confirm_repair_purchase(&mut self) {
+        let Some(track) = self.repair_confirmation.take() else {
+            return;
+        };
+        match self.simulator.purchase_repair(track) {
+            Ok(purchase) => {
+                self.status_message = format!(
+                    "{} repaired to L{}; spent {} credits, {} available",
+                    track.label(),
+                    purchase.level_after,
+                    purchase.credits_spent,
+                    purchase.credits_remaining
+                );
+            }
+            Err(error) => self.status_message = repair_error_text(error),
+        }
     }
 
     fn begin_notebook_edit(&mut self) {
@@ -755,5 +836,9 @@ fn previous_notebook_field(field: NotebookField) -> NotebookField {
 }
 
 fn publication_error_text(error: PublicationError) -> String {
+    error.to_string()
+}
+
+fn repair_error_text(error: RepairError) -> String {
     error.to_string()
 }

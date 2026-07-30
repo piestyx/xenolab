@@ -29,7 +29,7 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         None => String::new(),
     };
     let text = format!(
-        "{outcome}\n\nSeed: {}\nObjective: {}\nOutcome: {:?}\nFailure: {failure}\n\nActions: {} / {}\nFinal tick: {}\nContamination: {:.2} ({})\nPeak contamination: {:.2}\nCompromised scans: {}\nCritical scans: {}\n\nPlant: {:.2}\nFungus: {:.2}\nBacteria: {:.2}\nToxin: {:.2}\nNutrient: {:.2}\n\nObjective progress: {} / {}\nRun-event hash: {}\n\nResearch credits: {} / {}\nPublications: {} / {}\n{}\n\nRecorded hypotheses: {}\n{}\n\nControls\nr same seed | n new seed | 4 notebook | q quit{prompt}",
+        "{outcome}\n\nSeed: {}\nObjective: {}\nOutcome: {:?}\nFailure: {failure}\n\nActions: {} / {}\nFinal tick: {}\nContamination: {:.2} ({})\nPeak contamination: {:.2}\nCompromised scans: {}\nCritical scans: {}\n\nPlant: {:.2}\nFungus: {:.2}\nBacteria: {:.2}\nToxin: {:.2}\nNutrient: {:.2}\n\nObjective progress: {} / {}\nRun-event hash: {}\n\nCredits: {} earned / {} spent / {} available (max {})\nRepairs: Calibration L{} (scan ×{:.2}) | Containment L{} (cost -{})\nPublications: {} / {}\n{}\n\nRecorded hypotheses: {}\n{}\n\nRepairs purchased: {}\n{}\n\nControls\nr same seed | n new seed | 4 notebook | 5 repairs | q quit{prompt}",
         debrief.seed,
         debrief.objective.label(),
         debrief.outcome,
@@ -49,8 +49,14 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
         debrief.objective_progress.current,
         debrief.objective_progress.required,
         debrief.event_hash,
-        debrief.research_credits,
+        debrief.credits_earned,
+        debrief.credits_spent,
+        debrief.credits_remaining,
         debrief.publication_limit * 3,
+        debrief.calibration_level.level(),
+        debrief.calibration_multiplier,
+        debrief.containment_level.level(),
+        debrief.containment_reduction,
         debrief.publications_used,
         debrief.publication_limit,
         debrief
@@ -70,6 +76,23 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
                     publication.evidence_summary.rationale.text()
                 )
             })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        debrief.repair_purchases.len(),
+        debrief
+            .repair_purchases
+            .iter()
+            .map(|purchase| format!(
+                "[{}] {} L{}→L{} spent {} remaining {} (action {}, tick {})",
+                purchase.id.0,
+                purchase.track.label(),
+                purchase.level_before,
+                purchase.level_after,
+                purchase.credits_spent,
+                purchase.credits_remaining,
+                purchase.action_number,
+                purchase.tick
+            ))
             .collect::<Vec<_>>()
             .join("\n"),
         debrief.notebook.len(),

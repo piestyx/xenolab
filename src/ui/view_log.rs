@@ -44,6 +44,25 @@ pub fn render(frame: &mut Frame, area: Rect, app: &App) {
             ));
         }
     }
+    all_lines.push(String::new());
+    all_lines.push("Repairs (separate from RunEvent hash)".to_string());
+    if app.simulator.repair_purchases().is_empty() {
+        all_lines.push("No repairs purchased.".to_string());
+    } else {
+        for purchase in app.simulator.repair_purchases() {
+            all_lines.push(format!(
+                "#{} action={} tick={} {} L{}→L{} — spent {} credits, {} remaining",
+                purchase.id.0,
+                purchase.action_number,
+                purchase.tick,
+                purchase.track.label(),
+                purchase.level_before,
+                purchase.level_after,
+                purchase.credits_spent,
+                purchase.credits_remaining
+            ));
+        }
+    }
     let viewport_height = area.height.saturating_sub(2) as usize;
     let max_start = all_lines.len().saturating_sub(viewport_height);
     let start = app.log_scroll.min(max_start);

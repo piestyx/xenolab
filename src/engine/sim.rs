@@ -7,12 +7,18 @@ use crate::engine::graph::Graph;
 use crate::engine::ids::NodeId;
 use crate::engine::interventions::Intervention;
 use crate::engine::math;
-use crate::engine::measurement::{sample_standard_normal, scan_chemicals, scan_population};
+use crate::engine::measurement::{
+    sample_standard_normal, scan_chemicals_with_calibration, scan_population_with_calibration,
+};
 use crate::engine::notebook::{
     HypothesisDirection, HypothesisId, Notebook, NotebookError, ObservableVariable,
 };
 use crate::engine::publication::{
     evaluate, Publication, PublicationError, MAX_RESEARCH_CREDITS, PUBLICATION_LIMIT,
+};
+use crate::engine::repair::{
+    CalibrationLevel, ContainmentLevel, CreditWallet, RepairError, RepairPurchase,
+    RepairPurchaseId, RepairTrack,
 };
 use crate::engine::run::{RunDebrief, RunFailure, RunState, RunStatus, ACTION_LIMIT};
 use crate::engine::runlog::{RunEvent, RunLog};
@@ -57,7 +63,11 @@ pub struct Simulator {
     notebook: Notebook,
     publications: Vec<Publication>,
     next_publication_id: u32,
-    research_credits: u32,
+    credit_wallet: CreditWallet,
+    calibration_level: CalibrationLevel,
+    containment_level: ContainmentLevel,
+    repair_purchases: Vec<RepairPurchase>,
+    next_repair_purchase_id: u32,
     run: RunState,
     debrief: Option<RunDebrief>,
     lifecycle_enabled: bool,
@@ -112,7 +122,11 @@ impl Simulator {
             notebook: Notebook::new(),
             publications: Vec::new(),
             next_publication_id: 1,
-            research_credits: 0,
+            credit_wallet: CreditWallet::new(),
+            calibration_level: CalibrationLevel::Level0,
+            containment_level: ContainmentLevel::Level0,
+            repair_purchases: Vec::new(),
+            next_repair_purchase_id: 1,
             run: RunState::with_action_limit(seed, objective, action_limit),
             debrief: None,
             lifecycle_enabled,
@@ -172,11 +186,94 @@ impl Simulator {
     }
 
     pub fn research_credits(&self) -> u32 {
-        self.research_credits
+        self.credit_wallet.available()
     }
 
     pub fn max_research_credits(&self) -> u32 {
         MAX_RESEARCH_CREDITS
+    }
+
+    pub fn credits_earned(&self) -> u32 {
+        self.credit_wallet.earned()
+    }
+
+    pub fn credits_spent(&self) -> u32 {
+        self.credit_wallet.spent()
+    }
+
+    pub fn credits_available(&self) -> u32 {
+        self.credit_wallet.available()
+    }
+
+    pub fn calibration_level(&self) -> CalibrationLevel {
+        self.calibration_level
+    }
+
+    pub fn containment_level(&self) -> ContainmentLevel {
+        self.containment_level
+    }
+
+    pub fn repair_purchases(&self) -> &[RepairPurchase] {
+        &self.repair_purchases
+    }
+
+    pub fn calibration_multiplier(&self) -> f32 {
+        self.calibration_level.noise_multiplier()
+    }
+
+    pub fn containment_reduction(&self) -> u32 {
+        self.containment_level.contamination_reduction()
+    }
+
+    pub fn effective_contamination_cost(&self, action: &Intervention) -> u32 {
+        action
+            .contamination_cost()
+            .saturating_sub(self.containment_reduction())
+    }
+
+    pub fn purchase_repair(&mut self, track: RepairTrack) -> Result<RepairPurchase, RepairError> {
+        if self.lifecycle_enabled && self.run.status != RunStatus::Active {
+            return Err(RepairError::RunResolved);
+        }
+        let (level_before, cost) = match track {
+            RepairTrack::Calibration => (
+                self.calibration_level.level(),
+                self.calibration_level.next_cost(),
+            ),
+            RepairTrack::Containment => (
+                self.containment_level.level(),
+                self.containment_level.next_cost(),
+            ),
+        };
+        let Some(cost) = cost else {
+            return Err(RepairError::MaximumLevelReached);
+        };
+        let available = self.credit_wallet.available();
+        if available < cost {
+            return Err(RepairError::InsufficientCredits {
+                required: cost,
+                available,
+            });
+        }
+        let level_after = level_before + 1;
+        self.credit_wallet.spend(cost);
+        match track {
+            RepairTrack::Calibration => self.calibration_level = self.calibration_level.advance(),
+            RepairTrack::Containment => self.containment_level = self.containment_level.advance(),
+        }
+        let purchase = RepairPurchase {
+            id: RepairPurchaseId(self.next_repair_purchase_id),
+            track,
+            level_before,
+            level_after,
+            credits_spent: cost,
+            credits_remaining: self.credit_wallet.available(),
+            action_number: self.run.actions_used,
+            tick: self.tick,
+        };
+        self.next_repair_purchase_id = self.next_repair_purchase_id.saturating_add(1);
+        self.repair_purchases.push(purchase);
+        Ok(purchase)
     }
 
     pub fn publication_limit(&self) -> u32 {
@@ -253,10 +350,7 @@ impl Simulator {
             tick: self.tick,
         };
         self.next_publication_id = self.next_publication_id.saturating_add(1);
-        self.research_credits = self
-            .research_credits
-            .saturating_add(publication.credits_awarded)
-            .min(MAX_RESEARCH_CREDITS);
+        self.credit_wallet.award(publication.credits_awarded);
         self.publications.push(publication.clone());
         if self.lifecycle_enabled {
             self.run.actions_used = self.run.actions_used.saturating_add(1);
@@ -304,13 +398,17 @@ impl Simulator {
         } else {
             None
         };
+        let base_contamination_cost = action.contamination_cost();
+        let containment_reduction = self.containment_reduction();
+        let effective_contamination_cost =
+            base_contamination_cost.saturating_sub(containment_reduction);
         let mut measurements = Vec::new();
         self.apply_intervention(&action, &mut measurements)?;
         if action.ticks_time() {
             self.tick_once()?;
         }
 
-        self.add_contamination(action.contamination_cost());
+        self.add_contamination(effective_contamination_cost);
         if let Some(level) = scan_level {
             match level {
                 ContaminationLevel::Compromised => self.compromised_scans += 1,
@@ -325,6 +423,9 @@ impl Simulator {
             measurements,
             state_snapshot: self.state,
             contamination: self.contamination,
+            base_contamination_cost,
+            containment_reduction,
+            effective_contamination_cost,
         };
         self.runlog.push(event.clone());
         if self.lifecycle_enabled {
@@ -386,7 +487,12 @@ impl Simulator {
                 .to_string(),
             self.notebook.hypotheses().to_vec(),
             self.publications.clone(),
-            self.research_credits,
+            self.credit_wallet.earned(),
+            self.credit_wallet.spent(),
+            self.credit_wallet.available(),
+            self.calibration_level,
+            self.containment_level,
+            self.repair_purchases.clone(),
         )
     }
 
@@ -409,6 +515,7 @@ impl Simulator {
         action: &Intervention,
         measurements: &mut Vec<crate::engine::measurement::MeasurementRecord>,
     ) -> Result<(), SimError> {
+        let calibration_multiplier = self.calibration_multiplier();
         match action {
             Intervention::SetUvLow => {
                 self.state.set(NodeId::UvLevel, 0.0);
@@ -442,19 +549,21 @@ impl Simulator {
                 self.state.set(NodeId::FungusLoad, next);
             }
             Intervention::ScanPopulation => {
-                measurements.extend(scan_population(
+                measurements.extend(scan_population_with_calibration(
                     &self.state,
                     &mut self.rng,
                     self.tick,
                     self.contamination,
+                    calibration_multiplier,
                 ));
             }
             Intervention::ScanChemicals => {
-                measurements.extend(scan_chemicals(
+                measurements.extend(scan_chemicals_with_calibration(
                     &self.state,
                     &mut self.rng,
                     self.tick,
                     self.contamination,
+                    calibration_multiplier,
                 ));
             }
             Intervention::AdvanceTime => {}

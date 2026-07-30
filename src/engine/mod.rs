@@ -8,6 +8,7 @@ pub mod measurement;
 pub mod node;
 pub mod notebook;
 pub mod publication;
+pub mod repair;
 pub mod run;
 pub mod runlog;
 pub mod sim;
